@@ -155,6 +155,29 @@ async function importBirikim(ws) {
     if (buyukbasTarih && buyukbasTL !== 0) {
       kayitlar.push({ tarih: buyukbasTarih.toISOString(), tur: 'Büyükbaş Hayvan', miktar: buyukbasTL, islem_tl: buyukbasTL })
     }
+
+    // --- Şirketi Hayriyye (C22=tarih, C23=TL) ---
+    const sirketTarih = parseTarih(hucre(r, 22))
+    const sirketTL = sayi(hucre(r, 23))
+    if (sirketTarih && sirketTarih.getFullYear() < 2100 && sirketTL !== 0) {
+      kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Şirketi Hayriyye', miktar: sirketTL, islem_tl: sirketTL })
+    }
+
+    // --- Palandora (C25=tarih, C26=TL, C27=açıklama) ---
+    const palandoraTarih = parseTarih(hucre(r, 25))
+    const palandoraTL = sayi(hucre(r, 26))
+    const palandoraAciklama = hucre(r, 27)
+    if (palandoraTarih && palandoraTarih.getFullYear() < 2100 && palandoraTL !== 0) {
+      kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Palandora', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null })
+    }
+
+    // --- Alım Satım (C50=tarih, C51=TL, C52=açıklama) ---
+    const alimSatimTarih = parseTarih(hucre(r, 50))
+    const alimSatimTL = sayi(hucre(r, 51))
+    const alimSatimAciklama = hucre(r, 52)
+    if (alimSatimTarih && alimSatimTarih.getFullYear() < 2100 && alimSatimTL !== 0) {
+      kayitlar.push({ tarih: alimSatimTarih.toISOString(), tur: 'Alım Satım', miktar: alimSatimTL, islem_tl: alimSatimTL, aciklama: alimSatimAciklama ? String(alimSatimAciklama) : null })
+    }
   }
 
   for (let i = 0; i < kayitlar.length; i += 500)

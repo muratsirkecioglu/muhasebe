@@ -112,7 +112,7 @@ export default function Dashboard() {
     }
 
     // TL toplam = Banka + Nakit + TL Birikim + İnşaat + Büyükbaş + Borç Alacak (birikim)
-    const TL_DAHIL = ['TL', 'İnşaat', 'Büyükbaş Hayvan', 'Borç Alacak']
+    const TL_DAHIL = ['TL', 'İnşaat', 'Büyükbaş Hayvan', 'Borç Alacak', 'Şirketi Hayriyye', 'Palandora', 'Alım Satım']
     const birikimTL = TL_DAHIL.reduce((s, tur) => s + (ozet[tur] || 0), 0)
 
     setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })

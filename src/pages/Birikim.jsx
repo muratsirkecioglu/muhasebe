@@ -15,9 +15,12 @@ const DOVIZ_VARLIKLAR = [
 
 // TL cinsinden varlıklar: giriş/çıkış TL
 const TL_VARLIKLAR = [
-  { tur: 'İnşaat',           emoji: '🏗️' },
-  { tur: 'Büyükbaş Hayvan',  emoji: '🐄' },
-  { tur: 'Borç Alacak',      emoji: '📋' },
+  { tur: 'İnşaat',             emoji: '🏗️' },
+  { tur: 'Büyükbaş Hayvan',    emoji: '🐄' },
+  { tur: 'Borç Alacak',        emoji: '📋' },
+  { tur: 'Şirketi Hayriyye',   emoji: '🏢' },
+  { tur: 'Palandora',          emoji: '🏪' },
+  { tur: 'Alım Satım',         emoji: '🔄' },
 ]
 
 const TUM_TURLER = [...DOVIZ_VARLIKLAR.map(v => v.tur), ...TL_VARLIKLAR.map(v => v.tur)]
