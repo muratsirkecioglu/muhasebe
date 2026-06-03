@@ -313,6 +313,8 @@ export default function Import() {
       supabase.from('birikimler').delete().neq('id', 0),
       supabase.from('birikim_hareketler').delete().neq('id', 0),
       supabase.from('borc_alacak').delete().neq('id', 0),
+      supabase.from('borc_hareketler').delete().neq('id', 0),
+      supabase.from('nk_transferler').delete().neq('id', 0),
     ])
     setDurum('temizlendi')
   }
