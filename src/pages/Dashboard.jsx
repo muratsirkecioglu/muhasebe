@@ -79,7 +79,7 @@ function TransferFormu({ onKapat, onKayit }) {
 }
 
 export default function Dashboard() {
-  const [bakiye, setBakiye] = useState({ K: 0, N: 0 })
+  const [bakiye, setBakiye] = useState({ K: 0, N: 0, TL: 0 })
   const [birikimOzet, setBirikimOzet] = useState({})
   const [transfer, setTransfer] = useState(false)
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -94,24 +94,28 @@ export default function Dashboard() {
       supabase.from('birikim_hareketler').select('tur, miktar'),
     ])
 
-    // Banka bakiyesi
+    // Banka / Nakit bakiyesi
     const bankaGelir = (tumGelir || []).filter(r => r.hesap !== 'N').reduce((s, r) => s + (r.k || 0), 0)
     const bankaGider = (tumGider || []).filter(r => r.hesap !== 'N').reduce((s, r) => s + (r.k || 0), 0)
     const nakitGelir = (tumGelir || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
     const nakitGider = (tumGider || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
     const nkYuklenen = (nkData || []).reduce((s, r) => s + (r.k || 0), 0)
-    const nkCekilen = (nkData || []).reduce((s, r) => s + (r.n || 0), 0)
+    const nkCekilen  = (nkData || []).reduce((s, r) => s + (r.n || 0), 0)
 
-    setBakiye({
-      K: bankaGelir - bankaGider - nkCekilen + nkYuklenen,
-      N: nakitGelir - nakitGider + nkCekilen - nkYuklenen,
-    })
+    const bankaK = bankaGelir - bankaGider - nkCekilen + nkYuklenen
+    const nakitN = nakitGelir - nakitGider + nkCekilen - nkYuklenen
 
     // Birikim özeti — tur bazlı net miktar
     const ozet = {}
     for (const r of birikimData || []) {
       ozet[r.tur] = (ozet[r.tur] || 0) + (r.miktar || 0)
     }
+
+    // TL toplam = Banka + Nakit + TL Birikim + İnşaat + Büyükbaş + Borç Alacak (birikim)
+    const TL_DAHIL = ['TL', 'İnşaat', 'Büyükbaş Hayvan', 'Borç Alacak']
+    const birikimTL = TL_DAHIL.reduce((s, tur) => s + (ozet[tur] || 0), 0)
+
+    setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })
     setBirikimOzet(ozet)
     setYukleniyor(false)
   }
@@ -151,39 +155,44 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-        <div className="mt-2 bg-white rounded-xl px-4 py-3 border border-slate-100 shadow-sm flex justify-between items-center">
-          <span className="text-sm text-slate-500">Toplam TL Varlık</span>
-          <span className="text-base font-bold text-slate-800">₺{formatPara(bakiye.K + bakiye.N)}</span>
+        <div className="mt-2 bg-slate-800 rounded-xl px-4 py-3 flex justify-between items-center">
+          <span className="text-sm text-slate-300">Toplam TL Varlık</span>
+          <span className="text-lg font-bold text-white">₺{formatPara(bakiye.TL)}</span>
         </div>
       </div>
 
-      {/* Birikim Bakiyeleri */}
+      {/* Döviz Varlıkları */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <PiggyBank size={15} className="text-slate-400" />
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Birikim & Yatırım</h2>
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Döviz & Fiziki Varlıklar</h2>
         </div>
-        {Object.keys(birikimOzet).length === 0 ? (
-          <div className="text-center py-8 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
-            Henüz birikim kaydı yok. Import sayfasından Excel yükleyin.
+        {[
+          { tur: 'Altın Fiziki',  birim: 'gr', emoji: '🥇' },
+          { tur: 'Altın Banka',   birim: 'gr', emoji: '🏦' },
+          { tur: 'GMS/Gümüş',    birim: 'gr', emoji: '🪙' },
+          { tur: 'USD',           birim: '$',  emoji: '💵' },
+          { tur: 'EUR',           birim: '€',  emoji: '💶' },
+          { tur: 'GBP',           birim: '£',  emoji: '💷' },
+        ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).length === 0 ? (
+          <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
+            Henüz varlık kaydı yok.
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {Object.entries(birikimOzet)
-              .filter(([, miktar]) => miktar !== 0)
-              .sort(([a], [b]) => a.localeCompare(b, 'tr'))
-              .map(([tur, miktar]) => {
-                const birim = TUR_BIRIM[tur] || ''
-                const renk = TUR_RENK[tur] || 'bg-slate-50 text-slate-700 border-slate-100'
-                return (
-                  <div key={tur} className={`rounded-2xl p-4 border ${renk}`}>
-                    <p className="text-xs font-semibold opacity-70 mb-1">{tur}</p>
-                    <p className="text-xl font-bold">
-                      {birim !== '₺' ? `${formatPara(miktar)} ${birim}` : `₺${formatPara(miktar)}`}
-                    </p>
-                  </div>
-                )
-              })}
+            {[
+              { tur: 'Altın Fiziki',  birim: 'gr', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
+              { tur: 'Altın Banka',   birim: 'gr', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
+              { tur: 'GMS/Gümüş',    birim: 'gr', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
+              { tur: 'USD',           birim: '$',  emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
+              { tur: 'EUR',           birim: '€',  emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
+              { tur: 'GBP',           birim: '£',  emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
+            ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).map(v => (
+              <div key={v.tur} className={`rounded-2xl p-4 border ${v.renk}`}>
+                <p className="text-xs font-semibold opacity-60 mb-1">{v.emoji} {v.tur}</p>
+                <p className="text-xl font-bold">{formatPara(birikimOzet[v.tur])} {v.birim}</p>
+              </div>
+            ))}
           </div>
         )}
       </div>
