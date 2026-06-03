@@ -15,12 +15,28 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
-    const kayit = { tarih: form.tarih, donem, k: parseFloat(form.k) || 0, aciklama: form.aciklama }
+    const tutar = parseFloat(form.k) || 0
+    const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama }
+
     if (tur === 'gider') {
       await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori })
+
+      // Birikim kategorisiyse otomatik birikim_hareketler'e de ekle
+      if (form.kategori === 'Birikim') {
+        await supabase.from('birikim_hareketler').insert({
+          tarih: form.tarih,
+          tur: 'TL',
+          alt_tip: 'Birikim',
+          miktar: tutar,
+          islem_tl: tutar,
+          kur: 1,
+          aciklama: form.aciklama || null,
+        })
+      }
     } else {
       await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori })
     }
+
     onKayit()
     onKapat()
   }
