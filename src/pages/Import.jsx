@@ -115,11 +115,12 @@ async function importBirikim(ws) {
       kayitlar.push({ tarih: altinTarih.toISOString(), tur: 'Altın', alt_tip: altinGram > 0 ? 'Alış' : 'Satış', miktar: altinGram, islem_tl: altinTL, kur: altinKur })
     }
 
-    // --- GMS Altın (C15=gram, C16=TL) ---
+    // --- GMS/Gümüş (C15=gram, C16=TL, tarih C1'den alınır) ---
     const gmsGram = sayi(hucre(r, 15))
     const gmsTL = sayi(hucre(r, 16))
+    const gmsKur = sayi(hucre(r, 17))
     if (tlTarih && gmsGram !== 0) {
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'GMS Altın', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL })
+      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'GMS/Gümüş', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null })
     }
 
     // --- İnşaat (C19=tarih, C20=tip, C21=TL) ---
@@ -157,11 +158,12 @@ async function importBirikim(ws) {
       kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur })
     }
 
-    // --- Büyükbaş Hayvan (C54=tarih, C55=TL) ---
+    // --- Büyükbaş Hayvan (C54=tarih, C55=TL, C56=açıklama) ---
     const buyukbasTarih = parseTarih(hucre(r, 54))
     const buyukbasTL = sayi(hucre(r, 55))
-    if (buyukbasTarih && buyukbasTL !== 0) {
-      kayitlar.push({ tarih: buyukbasTarih.toISOString(), tur: 'Büyükbaş Hayvan', miktar: buyukbasTL, islem_tl: buyukbasTL })
+    const buyukbasAciklama = hucre(r, 56)
+    if (buyukbasTarih && buyukbasTarih.getFullYear() > 2000 && buyukbasTL !== 0) {
+      kayitlar.push({ tarih: buyukbasTarih.toISOString(), tur: 'Büyükbaş Hayvan', miktar: buyukbasTL, islem_tl: buyukbasTL, aciklama: buyukbasAciklama ? String(buyukbasAciklama) : null })
     }
 
     // --- Şirketi Hayriyye (C22=tarih, C23=TL) ---
