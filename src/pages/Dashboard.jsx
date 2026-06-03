@@ -15,10 +15,11 @@ function TransferFormu({ onKapat, onKayit }) {
     const t = parseFloat(tutar) || 0
     const d = new Date(tarih)
     const donem = d.getFullYear() * 100 + d.getMonth() + 1
+    // K = nakitten bankaya yükleme, N = bankadan nakit çekme
     await supabase.from('nk_transferler').insert({
       tarih, donem,
-      k: yon === 'yukle' ? t : 0,
-      n: yon === 'cek' ? t : 0,
+      k: yon === 'yukle' ? t : 0,  // nakitten bankaya → banka artar
+      n: yon === 'cek' ? t : 0,    // bankadan nakite → nakit artar
     })
     onKayit()
   }
@@ -140,11 +141,12 @@ export default function Dashboard() {
     const bankaGider = (giderData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
     const nakitGelir = (gelirData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
     const nakitGider = (giderData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
-    const nkYuklenen = (nkData || []).reduce((s, r) => s + (r.k || 0), 0)
-    const nkCekilen  = (nkData || []).reduce((s, r) => s + (r.n || 0), 0)
+    // NK: K = nakitten bankaya yükleme, N = bankadan nakit çekme
+    const nkYuklenen = (nkData || []).reduce((s, r) => s + (r.k || 0), 0) // banka artar, nakit azalır
+    const nkCekilen  = (nkData || []).reduce((s, r) => s + (r.n || 0), 0) // banka azalır, nakit artar
 
-    const bankaK = baslangicBanka + bankaGelir - bankaGider - nkCekilen + nkYuklenen
-    const nakitN = baslangicNakit + nakitGelir - nakitGider + nkCekilen - nkYuklenen
+    const bankaK = baslangicBanka + bankaGelir - bankaGider + nkYuklenen - nkCekilen
+    const nakitN = baslangicNakit + nakitGelir - nakitGider - nkYuklenen + nkCekilen
 
     // Birikim özeti
     const ozet = {}
