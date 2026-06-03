@@ -163,6 +163,61 @@ async function importBirikim(ws) {
   return kayitlar.length
 }
 
+// --- Borç-Alacak import ---
+async function importBorcAlacak(ws) {
+  const kayitlar = []
+  const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 231
+
+  const hucre = (r, c) => {
+    const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
+    const cell = ws[addr]
+    return cell ? cell.v : null
+  }
+
+  let sonKisi = null
+
+  for (let r = 21; r <= sonSatir; r++) {
+    const tarihVal = hucre(r, 1)
+    const kisiVal = hucre(r, 2)
+    const alinan = sayi(hucre(r, 3))
+    const odenen = sayi(hucre(r, 4))
+    const dovizMiktar = sayi(hucre(r, 7))
+    const dovizBirim = hucre(r, 8)
+    const aciklama = hucre(r, 9)
+
+    // Kişi adını güncelle
+    if (kisiVal && String(kisiVal).trim()) sonKisi = String(kisiVal).trim()
+    if (!sonKisi) continue
+
+    // Tarih yoksa ve tutar da yoksa atla
+    if (alinan === 0 && odenen === 0) continue
+
+    const tarih = parseTarih(tarihVal)
+    // Gerçekçi olmayan tarihleri atla (örn. yıl 2453)
+    if (tarih && tarih.getFullYear() > 2030) continue
+
+    const base = {
+      kisi: sonKisi,
+      tarih: tarih ? tarih.toISOString() : null,
+      doviz_miktar: dovizMiktar !== 0 ? dovizMiktar : null,
+      doviz_birim: dovizBirim ? String(dovizBirim).trim() : null,
+      aciklama: aciklama ? String(aciklama).trim() : null,
+    }
+
+    if (alinan !== 0) {
+      kayitlar.push({ ...base, hareket_tipi: 'alindi', tutar: Math.abs(alinan) })
+    }
+    if (odenen !== 0) {
+      kayitlar.push({ ...base, hareket_tipi: 'odendi', tutar: Math.abs(odenen) })
+    }
+  }
+
+  for (let i = 0; i < kayitlar.length; i += 500)
+    await supabase.from('borc_hareketler').insert(kayitlar.slice(i, i + 500))
+
+  return kayitlar.length
+}
+
 // --- Ana bileşen ---
 export default function Import() {
   const [durum, setDurum] = useState(null)
@@ -188,6 +243,9 @@ export default function Import() {
 
       if (wb.SheetNames.includes('Birikim'))
         sonuc.birikim = await importBirikim(wb.Sheets['Birikim'])
+
+      if (wb.SheetNames.includes('Borç-Alacak'))
+        sonuc.borc = await importBorcAlacak(wb.Sheets['Borç-Alacak'])
 
       setDetay(sonuc)
       setDurum('basarili')
@@ -255,6 +313,7 @@ export default function Import() {
               {detay.gider != null && <p>✓ {detay.gider} gider kaydı</p>}
               {detay.gelir != null && <p>✓ {detay.gelir} gelir kaydı</p>}
               {detay.birikim != null && <p>✓ {detay.birikim} birikim hareketi (TL, Altın, Döviz, İnşaat...)</p>}
+              {detay.borc != null && <p>✓ {detay.borc} borç/alacak hareketi</p>}
             </div>
           </div>
         </div>
