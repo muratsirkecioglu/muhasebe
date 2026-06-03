@@ -1,25 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { formatPara } from '../db'
-import { Landmark, Banknote, ArrowLeftRight, PiggyBank } from 'lucide-react'
-
-const TUR_RENK = {
-  'TL':               'bg-blue-50 text-blue-700 border-blue-100',
-  'Altın':            'bg-yellow-50 text-yellow-700 border-yellow-100',
-  'GMS Altın':        'bg-amber-50 text-amber-700 border-amber-100',
-  'USD':              'bg-green-50 text-green-700 border-green-100',
-  'EUR':              'bg-indigo-50 text-indigo-700 border-indigo-100',
-  'GBP':              'bg-purple-50 text-purple-700 border-purple-100',
-  'USDT':             'bg-teal-50 text-teal-700 border-teal-100',
-  'İnşaat':           'bg-orange-50 text-orange-700 border-orange-100',
-  'Büyükbaş Hayvan':  'bg-red-50 text-red-700 border-red-100',
-}
-
-const TUR_BIRIM = {
-  'Altın': 'gr', 'GMS Altın': 'gr',
-  'USD': '$', 'EUR': '€', 'GBP': '£', 'USDT': '₮',
-  'İnşaat': '₺', 'TL': '₺', 'Büyükbaş Hayvan': '₺',
-}
+import { Landmark, Banknote, ArrowLeftRight, PiggyBank, Settings } from 'lucide-react'
 
 function TransferFormu({ onKapat, onKayit }) {
   const [yon, setYon] = useState('cek')
@@ -78,40 +60,99 @@ function TransferFormu({ onKapat, onKayit }) {
   )
 }
 
+function BaslangicFormu({ mevcutBanka, mevcutNakit, onKapat, onKayit }) {
+  const [banka, setBanka] = useState(mevcutBanka)
+  const [nakit, setNakit] = useState(mevcutNakit)
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    await Promise.all([
+      supabase.from('ayarlar').upsert({ anahtar: 'baslangic_banka', deger: parseFloat(banka) || 0 }),
+      supabase.from('ayarlar').upsert({ anahtar: 'baslangic_nakit', deger: parseFloat(nakit) || 0 }),
+    ])
+    onKayit()
+    onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">⚙️ Başlangıç Bakiyesi</h3>
+          <p className="text-xs text-slate-400 mt-1">Şu anki gerçek bakiyelerinizi girin.</p>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">🏦 Banka Bakiyesi (₺)</label>
+            <input type="number" step="0.01" value={banka} onChange={e => setBanka(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">💵 Nakit Bakiyesi (₺)</label>
+            <input type="number" step="0.01" value={nakit} onChange={e => setNakit(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <p className="text-xs text-slate-400 bg-slate-50 rounded-xl p-3">
+            Bu değerler sabit başlangıç noktası olarak kaydedilir. Bundan sonra yapacağınız gelir/gider/transfer işlemleri bu bakiyelere eklenir/çıkarılır.
+          </p>
+          <div className="flex gap-3">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [bakiye, setBakiye] = useState({ K: 0, N: 0, TL: 0 })
+  const [baslangic, setBaslangic] = useState({ banka: 0, nakit: 0 })
   const [birikimOzet, setBirikimOzet] = useState({})
   const [transfer, setTransfer] = useState(false)
+  const [baslangicFormu, setBaslangicFormu] = useState(false)
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukle = async () => {
     setYukleniyor(true)
 
-    const [{ data: tumGelir }, { data: tumGider }, { data: nkData }, { data: birikimData }] = await Promise.all([
+    const [{ data: ayarlarData }, { data: gelirData }, { data: giderData }, { data: nkData }, { data: birikimData }] = await Promise.all([
+      supabase.from('ayarlar').select('anahtar, deger'),
       supabase.from('gelirler').select('k, hesap'),
       supabase.from('giderler').select('k, hesap'),
       supabase.from('nk_transferler').select('k, n'),
       supabase.from('birikim_hareketler').select('tur, miktar'),
     ])
 
-    // Banka / Nakit bakiyesi
-    const bankaGelir = (tumGelir || []).filter(r => r.hesap !== 'N').reduce((s, r) => s + (r.k || 0), 0)
-    const bankaGider = (tumGider || []).filter(r => r.hesap !== 'N').reduce((s, r) => s + (r.k || 0), 0)
-    const nakitGelir = (tumGelir || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
-    const nakitGider = (tumGider || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
+    // Başlangıç bakiyeleri
+    const ayarMap = {}
+    for (const a of ayarlarData || []) ayarMap[a.anahtar] = a.deger
+    const baslangicBanka = ayarMap['baslangic_banka'] || 0
+    const baslangicNakit = ayarMap['baslangic_nakit'] || 0
+    setBaslangic({ banka: baslangicBanka, nakit: baslangicNakit })
+
+    // Başlangıçtan sonraki hareketler (sadece K veya N seçilmiş olanlar)
+    const bankaGelir = (gelirData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
+    const bankaGider = (giderData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
+    const nakitGelir = (gelirData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
+    const nakitGider = (giderData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
     const nkYuklenen = (nkData || []).reduce((s, r) => s + (r.k || 0), 0)
     const nkCekilen  = (nkData || []).reduce((s, r) => s + (r.n || 0), 0)
 
-    const bankaK = bankaGelir - bankaGider - nkCekilen + nkYuklenen
-    const nakitN = nakitGelir - nakitGider + nkCekilen - nkYuklenen
+    const bankaK = baslangicBanka + bankaGelir - bankaGider - nkCekilen + nkYuklenen
+    const nakitN = baslangicNakit + nakitGelir - nakitGider + nkCekilen - nkYuklenen
 
-    // Birikim özeti — tur bazlı net miktar
+    // Birikim özeti
     const ozet = {}
     for (const r of birikimData || []) {
       ozet[r.tur] = (ozet[r.tur] || 0) + (r.miktar || 0)
     }
 
-    // TL toplam = Banka + Nakit + TL Birikim + İnşaat + Büyükbaş + Borç Alacak (birikim)
+    // TL toplam
     const TL_DAHIL = ['TL', 'İnşaat', 'Büyükbaş Hayvan', 'Borç Alacak', 'Şirketi Hayriyye', 'Palandora', 'Alım Satım']
     const birikimTL = TL_DAHIL.reduce((s, tur) => s + (ozet[tur] || 0), 0)
 
@@ -133,7 +174,13 @@ export default function Dashboard() {
 
       {/* Hesap Bakiyeleri */}
       <div>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Hesap Bakiyesi</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Hesap Bakiyesi</h2>
+          <button onClick={() => setBaslangicFormu(true)}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors">
+            <Settings size={13} /> Başlangıç Bakiyesi
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-blue-600 rounded-2xl p-5 text-white">
             <div className="flex items-center gap-2 mb-2">
@@ -148,8 +195,7 @@ export default function Dashboard() {
               <p className="text-xs opacity-70 font-medium">Nakit (N)</p>
             </div>
             <p className="text-3xl font-bold">₺{formatPara(bakiye.N)}</p>
-            <button onClick={() => setTransfer(true)}
-              title="Transfer"
+            <button onClick={() => setTransfer(true)} title="Transfer"
               className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 p-1.5 rounded-lg transition-colors">
               <ArrowLeftRight size={14} />
             </button>
@@ -168,12 +214,12 @@ export default function Dashboard() {
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Döviz & Fiziki Varlıklar</h2>
         </div>
         {[
-          { tur: 'Altın Fiziki',  birim: 'gr', emoji: '🥇' },
-          { tur: 'Altın Banka',   birim: 'gr', emoji: '🏦' },
-          { tur: 'GMS/Gümüş',    birim: 'gr', emoji: '🪙' },
-          { tur: 'USD',           birim: '$',  emoji: '💵' },
-          { tur: 'EUR',           birim: '€',  emoji: '💶' },
-          { tur: 'GBP',           birim: '£',  emoji: '💷' },
+          { tur: 'Altın Fiziki', birim: 'gr', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
+          { tur: 'Altın Banka',  birim: 'gr', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
+          { tur: 'GMS/Gümüş',   birim: 'gr', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
+          { tur: 'USD',          birim: '$',  emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
+          { tur: 'EUR',          birim: '€',  emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
+          { tur: 'GBP',          birim: '£',  emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
         ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).length === 0 ? (
           <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
             Henüz varlık kaydı yok.
@@ -181,12 +227,12 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
-              { tur: 'Altın Fiziki',  birim: 'gr', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
-              { tur: 'Altın Banka',   birim: 'gr', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
-              { tur: 'GMS/Gümüş',    birim: 'gr', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
-              { tur: 'USD',           birim: '$',  emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
-              { tur: 'EUR',           birim: '€',  emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
-              { tur: 'GBP',           birim: '£',  emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
+              { tur: 'Altın Fiziki', birim: 'gr', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
+              { tur: 'Altın Banka',  birim: 'gr', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
+              { tur: 'GMS/Gümüş',   birim: 'gr', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
+              { tur: 'USD',          birim: '$',  emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
+              { tur: 'EUR',          birim: '€',  emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
+              { tur: 'GBP',          birim: '£',  emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
             ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).map(v => (
               <div key={v.tur} className={`rounded-2xl p-4 border ${v.renk}`}>
                 <p className="text-xs font-semibold opacity-60 mb-1">{v.emoji} {v.tur}</p>
@@ -197,10 +243,13 @@ export default function Dashboard() {
         )}
       </div>
 
-      {transfer && (
-        <TransferFormu
-          onKapat={() => setTransfer(false)}
-          onKayit={() => { setTransfer(false); yukle() }}
+      {transfer && <TransferFormu onKapat={() => setTransfer(false)} onKayit={() => { setTransfer(false); yukle() }} />}
+      {baslangicFormu && (
+        <BaslangicFormu
+          mevcutBanka={baslangic.banka}
+          mevcutNakit={baslangic.nakit}
+          onKapat={() => setBaslangicFormu(false)}
+          onKayit={yukle}
         />
       )}
     </div>
