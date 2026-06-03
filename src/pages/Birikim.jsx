@@ -1,0 +1,124 @@
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '../supabase'
+import { formatPara } from '../db'
+import { Plus, Trash2 } from 'lucide-react'
+
+const BIRIKIM_TURLERI = ['TL', 'Altın (gr)', 'USD', 'EUR', 'GBP', 'Kripto', 'Gayrimenkul', 'Hisse', 'Diğer']
+
+function EkleFormu({ onKapat, onKayit }) {
+  const [form, setForm] = useState({ tarih: new Date().toISOString().split('T')[0], tur: 'TL', miktar: '', aciklama: '' })
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    await supabase.from('birikimler').insert({ tarih: form.tarih, tur: form.tur, miktar: parseFloat(form.miktar) || 0, aciklama: form.aciklama })
+    onKayit()
+    onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">💰 Birikim Ekle</h3>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tür</label>
+            <select value={form.tur} onChange={e => setForm(f => ({ ...f, tur: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+              {BIRIKIM_TURLERI.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Miktar</label>
+            <input type="number" step="any" value={form.miktar} onChange={e => setForm(f => ({ ...f, miktar: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
+            <input type="text" value={form.aciklama} onChange={e => setForm(f => ({ ...f, aciklama: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export default function Birikim() {
+  const [ekle, setEkle] = useState(false)
+  const [birikimler, setBirikimler] = useState([])
+  const [yukleniyor, setYukleniyor] = useState(true)
+
+  const yukle = useCallback(async () => {
+    setYukleniyor(true)
+    const { data } = await supabase.from('birikimler').select('*').order('tarih', { ascending: false })
+    setBirikimler(data || [])
+    setYukleniyor(false)
+  }, [])
+
+  useEffect(() => { yukle() }, [yukle])
+
+  const sil = async (id) => {
+    await supabase.from('birikimler').delete().eq('id', id)
+    yukle()
+  }
+
+  const turOzet = birikimler.reduce((acc, r) => {
+    acc[r.tur] = (acc[r.tur] || 0) + r.miktar
+    return acc
+  }, {})
+
+  return (
+    <div className="p-4 md:p-6 max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-semibold text-slate-700">Birikim Takibi</h2>
+        <button onClick={() => setEkle(true)}
+          className="flex items-center gap-1 bg-blue-600 text-white text-sm px-3 py-2 rounded-xl font-medium">
+          <Plus size={15} /> Ekle
+        </button>
+      </div>
+
+      {Object.keys(turOzet).length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+          {Object.entries(turOzet).map(([tur, miktar]) => (
+            <div key={tur} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+              <p className="text-xs text-slate-500">{tur}</p>
+              <p className="text-xl font-bold text-slate-800 mt-1">{formatPara(miktar)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {yukleniyor ? (
+        <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+      ) : (
+        <div className="space-y-2">
+          {birikimler.map(r => (
+            <div key={r.id} className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-100 flex items-center gap-3">
+              <div className="flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-medium text-slate-800">{r.tur}</span>
+                  {r.aciklama && <span className="text-xs text-slate-400">{r.aciklama}</span>}
+                </div>
+                <p className="text-xs text-slate-400">{new Date(r.tarih).toLocaleDateString('tr-TR')}</p>
+              </div>
+              <p className="text-sm font-bold text-blue-600">{formatPara(r.miktar)}</p>
+              <button onClick={() => sil(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {ekle && <EkleFormu onKapat={() => setEkle(false)} onKayit={yukle} />}
+    </div>
+  )
+}
