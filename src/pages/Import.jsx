@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
-import { Upload, CheckCircle, AlertCircle, FileSpreadsheet } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, Trash2 } from 'lucide-react'
 
 // --- Yardımcı fonksiyonlar ---
 function parseTarih(val) {
@@ -13,7 +13,6 @@ function parseTarih(val) {
     return new Date(d.y, d.m - 1, d.d)
   }
   if (typeof val === 'string') {
-    // DD.MM.YYYY formatı
     const m = val.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/)
     if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]))
     const d = new Date(val)
@@ -31,13 +30,22 @@ function sayi(val) {
   if (val === null || val === undefined || val === '') return 0
   if (typeof val === 'number') return val
   const s = String(val).replace(/,/g, '').trim()
-  // Muhasebe formatı: (20000) → -20000
   if (/^\([\d.]+\)$/.test(s)) return -(parseFloat(s.slice(1, -1)) || 0)
   return parseFloat(s) || 0
 }
 
-// --- Gider Detay import ---
-// Sütunlar: Tarih | Harcama | K(banka) | N(nakit) | Toplam | Açıklama | Dönem
+function hucreOku(ws, r, c) {
+  const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
+  const cell = ws[addr]
+  if (!cell) return null
+  if (cell.t === 'n') {
+    if (cell.w && /^\(/.test(cell.w.trim())) return -Math.abs(cell.v)
+    return cell.v
+  }
+  return cell.v
+}
+
+// --- Import fonksiyonları ---
 async function importGiderDetay(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
   const kayitlar = []
@@ -59,8 +67,6 @@ async function importGiderDetay(ws) {
   return kayitlar.length
 }
 
-// --- Gelir Detay import ---
-// Sütunlar: Tarih | Harcama | K(banka) | N(nakit) | Açıklama | Dönem
 async function importGelirDetay(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
   const kayitlar = []
@@ -82,130 +88,6 @@ async function importGelirDetay(ws) {
   return kayitlar.length
 }
 
-// --- Birikim import ---
-async function importBirikim(ws) {
-  const kayitlar = []
-  const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 1011
-
-  const hucre = (r, c) => {
-    const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
-    const cell = ws[addr]
-    if (!cell) return null
-    if (cell.t === 'n') {
-      // Muhasebe formatı: cell.w parantez gösteriyorsa (örn. "(64.400)") değer negatiftir
-      if (cell.w && /^\(/.test(cell.w.trim())) return -Math.abs(cell.v)
-      return cell.v
-    }
-    return cell.v
-  }
-
-  for (let r = 18; r <= sonSatir; r++) {
-    // --- TL Birikim (C1=tarih, C2=tutar, C3=kiraFark, C4=küsürat) ---
-    const tlTarih = parseTarih(hucre(r, 1))
-    const tlTutar = sayi(hucre(r, 2))
-    if (tlTarih && tlTutar !== 0) {
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Birikim', miktar: tlTutar, islem_tl: tlTutar, kur: 1 })
-    }
-    const kiraFark = sayi(hucre(r, 3))
-    if (tlTarih && kiraFark !== 0) {
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Kira Fark', miktar: kiraFark, islem_tl: kiraFark, kur: 1 })
-    }
-    const kusurat = sayi(hucre(r, 4))
-    if (tlTarih && kusurat !== 0) {
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Küsürat', miktar: kusurat, islem_tl: kusurat, kur: 1 })
-    }
-
-    // --- Altın (C5=tarih, C6=gram, C7=TL, C8=kur) ---
-    const altinTarih = parseTarih(hucre(r, 5)) || tlTarih
-    const altinGram = sayi(hucre(r, 6))
-    const altinTL = sayi(hucre(r, 7))
-    const altinKur = sayi(hucre(r, 8))
-    if (altinTarih && altinGram !== 0) {
-      kayitlar.push({ tarih: altinTarih.toISOString(), tur: 'Altın', alt_tip: altinGram > 0 ? 'Alış' : 'Satış', miktar: altinGram, islem_tl: altinTL, kur: altinKur })
-    }
-
-    // --- GMS/Gümüş (C15=gram, C16=TL, tarih C1'den alınır) ---
-    const gmsGram = sayi(hucre(r, 15))
-    const gmsTL = sayi(hucre(r, 16))
-    const gmsKur = sayi(hucre(r, 17))
-    if (tlTarih && gmsGram !== 0) {
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'GMS/Gümüş', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null })
-    }
-
-    // --- İnşaat (C19=tarih, C20=tip, C21=TL) ---
-    const insaatTarih = parseTarih(hucre(r, 19))
-    const insaatTip = hucre(r, 20)
-    const insaatTL = sayi(hucre(r, 21))
-    if (insaatTarih && insaatTL !== 0) {
-      kayitlar.push({ tarih: insaatTarih.toISOString(), tur: 'İnşaat', alt_tip: insaatTip ? String(insaatTip) : null, miktar: insaatTL, islem_tl: insaatTL })
-    }
-
-    // --- USD (C29=tarih, C30=USD, C31=TL, C32=kur) ---
-    const usdTarih = parseTarih(hucre(r, 29))
-    const usdMiktar = sayi(hucre(r, 30))
-    const usdTL = sayi(hucre(r, 31))
-    const usdKur = sayi(hucre(r, 32))
-    if (usdTarih && usdMiktar !== 0) {
-      kayitlar.push({ tarih: usdTarih.toISOString(), tur: 'USD', alt_tip: usdMiktar > 0 ? 'Alış' : 'Satış', miktar: usdMiktar, islem_tl: usdTL, kur: usdKur })
-    }
-
-    // --- EUR (C40=tarih, C41=EUR, C42=TL, C43=kur) ---
-    const eurTarih = parseTarih(hucre(r, 40))
-    const eurMiktar = sayi(hucre(r, 41))
-    const eurTL = sayi(hucre(r, 42))
-    const eurKur = sayi(hucre(r, 43))
-    if (eurTarih && eurMiktar !== 0) {
-      kayitlar.push({ tarih: eurTarih.toISOString(), tur: 'EUR', alt_tip: eurMiktar > 0 ? 'Alış' : 'Satış', miktar: eurMiktar, islem_tl: eurTL, kur: eurKur })
-    }
-
-    // --- GBP (C45=tarih, C46=GBP, C47=TL, C48=kur) ---
-    const gbpTarih = parseTarih(hucre(r, 45))
-    const gbpMiktar = sayi(hucre(r, 46))
-    const gbpTL = sayi(hucre(r, 47))
-    const gbpKur = sayi(hucre(r, 48))
-    if (gbpTarih && gbpMiktar !== 0) {
-      kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur })
-    }
-
-    // --- Büyükbaş Hayvan (C54=tarih, C55=TL, C56=açıklama) ---
-    const buyukbasTarih = parseTarih(hucre(r, 54))
-    const buyukbasTL = sayi(hucre(r, 55))
-    const buyukbasAciklama = hucre(r, 56)
-    if (buyukbasTarih && buyukbasTarih.getFullYear() > 2000 && buyukbasTL !== 0) {
-      kayitlar.push({ tarih: buyukbasTarih.toISOString(), tur: 'Büyükbaş Hayvan', miktar: buyukbasTL, islem_tl: buyukbasTL, aciklama: buyukbasAciklama ? String(buyukbasAciklama) : null })
-    }
-
-    // --- Şirketi Hayriyye (C22=tarih, C23=TL) ---
-    const sirketTarih = parseTarih(hucre(r, 22))
-    const sirketTL = sayi(hucre(r, 23))
-    if (sirketTarih && sirketTarih.getFullYear() < 2100 && sirketTL !== 0) {
-      kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Şirketi Hayriyye', miktar: sirketTL, islem_tl: sirketTL })
-    }
-
-    // --- Palandora (C25=tarih, C26=TL, C27=açıklama) ---
-    const palandoraTarih = parseTarih(hucre(r, 25))
-    const palandoraTL = sayi(hucre(r, 26))
-    const palandoraAciklama = hucre(r, 27)
-    if (palandoraTarih && palandoraTarih.getFullYear() < 2100 && palandoraTL !== 0) {
-      kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Palandora', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null })
-    }
-
-    // --- Alım Satım (C50=tarih, C51=TL, C52=açıklama) ---
-    const alimSatimTarih = parseTarih(hucre(r, 50))
-    const alimSatimTL = sayi(hucre(r, 51))
-    const alimSatimAciklama = hucre(r, 52)
-    if (alimSatimTarih && alimSatimTarih.getFullYear() < 2100 && alimSatimTL !== 0) {
-      kayitlar.push({ tarih: alimSatimTarih.toISOString(), tur: 'Alım Satım', miktar: alimSatimTL, islem_tl: alimSatimTL, aciklama: alimSatimAciklama ? String(alimSatimAciklama) : null })
-    }
-  }
-
-  for (let i = 0; i < kayitlar.length; i += 500)
-    await supabase.from('birikim_hareketler').insert(kayitlar.slice(i, i + 500))
-
-  return kayitlar.length
-}
-
-// --- NK Transfer import ---
 async function importNK(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
   const kayitlar = []
@@ -214,8 +96,7 @@ async function importNK(ws) {
     if (!tarihVal) continue
     const tarih = parseTarih(tarihVal)
     if (!tarih) continue
-    const k = sayi(kVal)
-    const n = sayi(nVal)
+    const k = sayi(kVal), n = sayi(nVal)
     if (k === 0 && n === 0) continue
     const donem = donemVal ? parseInt(String(donemVal)) : donemHesapla(tarih)
     kayitlar.push({ tarih: tarih.toISOString(), donem, k, n })
@@ -225,190 +106,232 @@ async function importNK(ws) {
   return kayitlar.length
 }
 
-// --- Borç-Alacak import ---
+async function importBirikim(ws) {
+  const kayitlar = []
+  const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 1011
+  const h = (r, c) => hucreOku(ws, r, c)
+
+  for (let r = 18; r <= sonSatir; r++) {
+    const tlTarih = parseTarih(h(r, 1))
+    const tlTutar = sayi(h(r, 2))
+    if (tlTarih && tlTutar !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Birikim', miktar: tlTutar, islem_tl: tlTutar, kur: 1 })
+    const kiraFark = sayi(h(r, 3))
+    if (tlTarih && kiraFark !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Kira Fark', miktar: kiraFark, islem_tl: kiraFark, kur: 1 })
+    const kusurat = sayi(h(r, 4))
+    if (tlTarih && kusurat !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Küsürat', miktar: kusurat, islem_tl: kusurat, kur: 1 })
+
+    const altinTarih = parseTarih(h(r, 5)) || tlTarih
+    const altinGram = sayi(h(r, 6)), altinTL = sayi(h(r, 7)), altinKur = sayi(h(r, 8))
+    if (altinTarih && altinGram !== 0) kayitlar.push({ tarih: altinTarih.toISOString(), tur: 'Altın', alt_tip: altinGram > 0 ? 'Alış' : 'Satış', miktar: altinGram, islem_tl: altinTL, kur: altinKur })
+
+    const gmsGram = sayi(h(r, 15)), gmsTL = sayi(h(r, 16)), gmsKur = sayi(h(r, 17))
+    if (tlTarih && gmsGram !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'GMS/Gümüş', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null })
+
+    const insaatTarih = parseTarih(h(r, 19)), insaatTip = h(r, 20), insaatTL = sayi(h(r, 21))
+    if (insaatTarih && insaatTarih.getFullYear() < 2100 && insaatTL !== 0) kayitlar.push({ tarih: insaatTarih.toISOString(), tur: 'İnşaat', alt_tip: insaatTip ? String(insaatTip) : null, miktar: insaatTL, islem_tl: insaatTL })
+
+    const sirketTarih = parseTarih(h(r, 22)), sirketTL = sayi(h(r, 23))
+    if (sirketTarih && sirketTarih.getFullYear() > 2000 && sirketTarih.getFullYear() < 2100 && sirketTL !== 0) kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Şirketi Hayriyye', miktar: sirketTL, islem_tl: sirketTL })
+
+    const palandoraTarih = parseTarih(h(r, 25)), palandoraTL = sayi(h(r, 26)), palandoraAciklama = h(r, 27)
+    if (palandoraTarih && palandoraTarih.getFullYear() < 2100 && palandoraTL !== 0) kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Palandora', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null })
+
+    const usdTarih = parseTarih(h(r, 29)), usdMiktar = sayi(h(r, 30)), usdTL = sayi(h(r, 31)), usdKur = sayi(h(r, 32))
+    if (usdTarih && usdMiktar !== 0) kayitlar.push({ tarih: usdTarih.toISOString(), tur: 'USD', alt_tip: usdMiktar > 0 ? 'Alış' : 'Satış', miktar: usdMiktar, islem_tl: usdTL, kur: usdKur })
+
+    const eurTarih = parseTarih(h(r, 40)), eurMiktar = sayi(h(r, 41)), eurTL = sayi(h(r, 42)), eurKur = sayi(h(r, 43))
+    if (eurTarih && eurMiktar !== 0) kayitlar.push({ tarih: eurTarih.toISOString(), tur: 'EUR', alt_tip: eurMiktar > 0 ? 'Alış' : 'Satış', miktar: eurMiktar, islem_tl: eurTL, kur: eurKur })
+
+    const gbpTarih = parseTarih(h(r, 45)), gbpMiktar = sayi(h(r, 46)), gbpTL = sayi(h(r, 47)), gbpKur = sayi(h(r, 48))
+    if (gbpTarih && gbpMiktar !== 0) kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur })
+
+    const buyukbasTarih = parseTarih(h(r, 54)), buyukbasTL = sayi(h(r, 55)), buyukbasAciklama = h(r, 56)
+    if (buyukbasTarih && buyukbasTarih.getFullYear() > 2000 && buyukbasTL !== 0) kayitlar.push({ tarih: buyukbasTarih.toISOString(), tur: 'Büyükbaş Hayvan', miktar: buyukbasTL, islem_tl: buyukbasTL, aciklama: buyukbasAciklama ? String(buyukbasAciklama) : null })
+
+    const sirketTarih2 = parseTarih(h(r, 22))
+    const alimSatimTarih = parseTarih(h(r, 50)), alimSatimTL = sayi(h(r, 51)), alimSatimAciklama = h(r, 52)
+    if (alimSatimTarih && alimSatimTarih.getFullYear() < 2100 && alimSatimTL !== 0) kayitlar.push({ tarih: alimSatimTarih.toISOString(), tur: 'Alım Satım', miktar: alimSatimTL, islem_tl: alimSatimTL, aciklama: alimSatimAciklama ? String(alimSatimAciklama) : null })
+  }
+
+  for (let i = 0; i < kayitlar.length; i += 500)
+    await supabase.from('birikim_hareketler').insert(kayitlar.slice(i, i + 500))
+  return kayitlar.length
+}
+
 async function importBorcAlacak(ws) {
   const kayitlar = []
   const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 231
-
-  const hucre = (r, c) => {
-    const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
-    const cell = ws[addr]
-    if (!cell) return null
-    if (cell.t === 'n') {
-      if (cell.w && /^\(/.test(cell.w.trim())) return -Math.abs(cell.v)
-      return cell.v
-    }
-    return cell.v
-  }
-
+  const h = (r, c) => hucreOku(ws, r, c)
   let sonKisi = null
 
   for (let r = 21; r <= sonSatir; r++) {
-    const tarihVal = hucre(r, 1)
-    const kisiVal = hucre(r, 2)
-    const alinan = sayi(hucre(r, 3))
-    const odenen = sayi(hucre(r, 4))
-    const dovizMiktar = sayi(hucre(r, 7))
-    const dovizBirim = hucre(r, 8)
-    const aciklama = hucre(r, 9)
-
-    // Kişi adını güncelle
+    const tarihVal = h(r, 1), kisiVal = h(r, 2)
+    const alinan = sayi(h(r, 3)), odenen = sayi(h(r, 4))
+    const dovizMiktar = sayi(h(r, 7)), dovizBirim = h(r, 8), aciklama = h(r, 9)
     if (kisiVal && String(kisiVal).trim()) sonKisi = String(kisiVal).trim()
     if (!sonKisi) continue
-
-    // Tarih yoksa ve tutar da yoksa atla
     if (alinan === 0 && odenen === 0) continue
-
     const tarih = parseTarih(tarihVal)
-    // Gerçekçi olmayan tarihleri atla (örn. yıl 2453)
     if (tarih && tarih.getFullYear() > 2030) continue
-
-    const base = {
-      kisi: sonKisi,
-      tarih: tarih ? tarih.toISOString() : null,
-      doviz_miktar: dovizMiktar !== 0 ? dovizMiktar : null,
-      doviz_birim: dovizBirim ? String(dovizBirim).trim() : null,
-      aciklama: aciklama ? String(aciklama).trim() : null,
-    }
-
-    if (alinan !== 0) {
-      kayitlar.push({ ...base, hareket_tipi: 'alindi', tutar: Math.abs(alinan) })
-    }
-    if (odenen !== 0) {
-      kayitlar.push({ ...base, hareket_tipi: 'odendi', tutar: Math.abs(odenen) })
-    }
+    const base = { kisi: sonKisi, tarih: tarih ? tarih.toISOString() : null, doviz_miktar: dovizMiktar !== 0 ? dovizMiktar : null, doviz_birim: dovizBirim ? String(dovizBirim).trim() : null, aciklama: aciklama ? String(aciklama).trim() : null }
+    if (alinan !== 0) kayitlar.push({ ...base, hareket_tipi: 'alindi', tutar: Math.abs(alinan) })
+    if (odenen !== 0) kayitlar.push({ ...base, hareket_tipi: 'odendi', tutar: Math.abs(odenen) })
   }
 
   for (let i = 0; i < kayitlar.length; i += 500)
     await supabase.from('borc_hareketler').insert(kayitlar.slice(i, i + 500))
-
   return kayitlar.length
 }
 
-// --- Ana bileşen ---
-export default function Import() {
-  const [durum, setDurum] = useState(null)
-  const [yukleniyor, setYukleniyor] = useState(false)
-  const [detay, setDetay] = useState(null)
+// --- Import kalemleri tanımı ---
+const IMPORTLAR = [
+  {
+    key: 'gider', label: 'Gider Detay', emoji: '➖',
+    aciklama: 'Tüm gider işlemleri (K/N ayrımıyla)',
+    sheetFn: (wb) => wb.SheetNames.find(n => n === 'Gider Detay'),
+    importFn: importGiderDetay,
+    silFn: () => supabase.from('giderler').delete().neq('id', 0),
+  },
+  {
+    key: 'gelir', label: 'Gelir Detay', emoji: '➕',
+    aciklama: 'Maaş, prim, alacak ve diğer gelirler',
+    sheetFn: (wb) => wb.SheetNames.find(n => n === 'Gelir Detay'),
+    importFn: importGelirDetay,
+    silFn: () => supabase.from('gelirler').delete().neq('id', 0),
+  },
+  {
+    key: 'nk', label: 'NK Transferler', emoji: '🔄',
+    aciklama: 'Banka ↔ Nakit transferleri',
+    sheetFn: (wb) => wb.SheetNames.find(n => n === 'NK'),
+    importFn: importNK,
+    silFn: () => supabase.from('nk_transferler').delete().neq('id', 0),
+  },
+  {
+    key: 'birikim', label: 'Birikim', emoji: '💰',
+    aciklama: 'TL, Altın, GMS, USD, EUR, GBP, İnşaat, Şirketi Hayriyye, Palandora, Alım Satım, Büyükbaş',
+    sheetFn: (wb) => wb.SheetNames.find(n => n === 'Birikim'),
+    importFn: importBirikim,
+    silFn: () => supabase.from('birikim_hareketler').delete().neq('id', 0),
+  },
+  {
+    key: 'borc', label: 'Borç-Alacak', emoji: '📋',
+    aciklama: 'Kişi bazlı borç ve alacak hareketleri',
+    sheetFn: (wb) => wb.SheetNames.find(n => n.toLowerCase().includes('bor') && n.includes('lacak')),
+    importFn: importBorcAlacak,
+    silFn: () => supabase.from('borc_hareketler').delete().neq('id', 0),
+  },
+]
 
-  const excelIsle = async (e) => {
+function ImportKalemi({ kalem }) {
+  const [durum, setDurum] = useState(null) // null | 'yukleniyor' | 'ok' | 'hata'
+  const [sayi_, setSayi] = useState(null)
+
+  const isle = async (e) => {
     const dosya = e.target.files[0]
     if (!dosya) return
-    setYukleniyor(true)
-    setDurum(null)
-    setDetay(null)
+    setDurum('yukleniyor')
+    setSayi(null)
     try {
       const buffer = await dosya.arrayBuffer()
       const wb = XLSX.read(buffer, { type: 'array', cellDates: false })
-      const sonuc = {}
-
-      if (wb.SheetNames.includes('Gider Detay'))
-        sonuc.gider = await importGiderDetay(wb.Sheets['Gider Detay'])
-
-      if (wb.SheetNames.includes('Gelir Detay'))
-        sonuc.gelir = await importGelirDetay(wb.Sheets['Gelir Detay'])
-
-      if (wb.SheetNames.includes('Birikim'))
-        sonuc.birikim = await importBirikim(wb.Sheets['Birikim'])
-
-      if (wb.SheetNames.includes('NK'))
-        sonuc.nk = await importNK(wb.Sheets['NK'])
-
-      const borcSheet = wb.SheetNames.find(n => n.toLowerCase().includes('bor') && n.includes('lacak'))
-      if (borcSheet)
-        sonuc.borc = await importBorcAlacak(wb.Sheets[borcSheet])
-
-      setDetay(sonuc)
-      setDurum('basarili')
+      const sheetName = kalem.sheetFn(wb)
+      if (!sheetName) { setDurum('hata'); return }
+      const adet = await kalem.importFn(wb.Sheets[sheetName])
+      setSayi(adet)
+      setDurum('ok')
     } catch (err) {
       console.error(err)
       setDurum('hata')
     } finally {
-      setYukleniyor(false)
       e.target.value = ''
     }
   }
 
-  const veritabaniniTemizle = async () => {
-    if (!confirm('Tüm veriler sunucudan silinecek. Emin misiniz?')) return
-    await Promise.all([
-      supabase.from('giderler').delete().neq('id', 0),
-      supabase.from('gelirler').delete().neq('id', 0),
-      supabase.from('birikimler').delete().neq('id', 0),
-      supabase.from('birikim_hareketler').delete().neq('id', 0),
-      supabase.from('borc_alacak').delete().neq('id', 0),
-      supabase.from('borc_hareketler').delete().neq('id', 0),
-      supabase.from('nk_transferler').delete().neq('id', 0),
-    ])
-    setDurum('temizlendi')
+  const sil = async () => {
+    if (!confirm(`${kalem.label} verileri silinsin mi?`)) return
+    await kalem.silFn()
+    setDurum(null)
+    setSayi(null)
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-lg mx-auto space-y-4">
-      <h2 className="text-lg font-semibold text-slate-700">Veri Yönetimi</h2>
+    <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-lg">{kalem.emoji}</span>
+            <h3 className="text-sm font-semibold text-slate-700">{kalem.label}</h3>
+          </div>
+          <p className="text-xs text-slate-400">{kalem.aciklama}</p>
+        </div>
 
-      <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-700 mb-1">📊 Excel'den Import</h3>
-        <p className="text-xs text-slate-400 mb-1">
-          <strong>Muhasebe.xlsx</strong> dosyasını seçin. Şu sayfalar aktarılır:
-        </p>
-        <ul className="text-xs text-slate-400 mb-4 list-disc list-inside space-y-0.5">
-          <li>Gider Detay → Giderler</li>
-          <li>Gelir Detay → Gelirler</li>
-          <li>Birikim → TL, Altın, GMS, İnşaat, USD, EUR, GBP, Büyükbaş</li>
-        </ul>
-        <label className={`flex flex-col items-center gap-3 border-2 border-dashed rounded-xl p-8 cursor-pointer transition-colors ${
-          yukleniyor ? 'border-blue-300 bg-blue-50' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
-        }`}>
-          {yukleniyor ? (
-            <div className="flex flex-col items-center gap-2 text-blue-600 text-sm">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              Yükleniyor... (1-2 dakika sürebilir)
-            </div>
-          ) : (
-            <>
-              <FileSpreadsheet size={32} className="text-slate-300" />
-              <div className="flex items-center gap-2 bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-medium">
-                <Upload size={15} /> Muhasebe.xlsx Seç
-              </div>
-            </>
-          )}
-          <input type="file" accept=".xlsx,.xls" onChange={excelIsle} className="hidden" disabled={yukleniyor} />
-        </label>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Sil butonu */}
+          <button onClick={sil} title="Verileri Sil"
+            className="p-2 rounded-xl hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+            <Trash2 size={15} />
+          </button>
+
+          {/* Import butonu */}
+          <label className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${
+            durum === 'yukleniyor'
+              ? 'bg-blue-50 text-blue-500'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
+          }`}>
+            {durum === 'yukleniyor' ? (
+              <><div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" /> Yükleniyor</>
+            ) : (
+              <><Upload size={13} /> Import</>
+            )}
+            <input type="file" accept=".xlsx,.xls" onChange={isle} className="hidden" disabled={durum === 'yukleniyor'} />
+          </label>
+        </div>
       </div>
 
-      {durum === 'basarili' && detay && (
-        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex gap-3">
-          <CheckCircle size={20} className="text-green-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-green-700">Import başarılı!</p>
-            <div className="text-xs text-green-600 mt-1 space-y-0.5">
-              {detay.gider != null && <p>✓ {detay.gider} gider kaydı</p>}
-              {detay.gelir != null && <p>✓ {detay.gelir} gelir kaydı</p>}
-              {detay.birikim != null && <p>✓ {detay.birikim} birikim hareketi (TL, Altın, Döviz, İnşaat...)</p>}
-              {detay.nk != null && <p>✓ {detay.nk} NK transfer kaydı</p>}
-              {detay.borc != null && <p>✓ {detay.borc} borç/alacak hareketi</p>}
-            </div>
-          </div>
+      {/* Durum */}
+      {durum === 'ok' && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-green-600 bg-green-50 rounded-xl px-3 py-2">
+          <CheckCircle size={13} />
+          {sayi_} kayıt aktarıldı.
         </div>
       )}
-
       {durum === 'hata' && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3">
-          <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
-          <p className="text-sm text-red-700">Hata oluştu. Konsolu kontrol edin (F12).</p>
+        <div className="mt-3 flex items-center gap-2 text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2">
+          <AlertCircle size={13} />
+          Hata oluştu — sheet bulunamadı veya veri bozuk.
         </div>
       )}
+    </div>
+  )
+}
 
-      {durum === 'temizlendi' && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-          <p className="text-sm text-slate-600">Tüm veriler silindi.</p>
-        </div>
-      )}
+export default function Import() {
+  const tumunuSil = async () => {
+    if (!confirm('Tüm veriler silinecek. Emin misiniz?')) return
+    await Promise.all([
+      supabase.from('giderler').delete().neq('id', 0),
+      supabase.from('gelirler').delete().neq('id', 0),
+      supabase.from('nk_transferler').delete().neq('id', 0),
+      supabase.from('birikim_hareketler').delete().neq('id', 0),
+      supabase.from('borc_hareketler').delete().neq('id', 0),
+      supabase.from('borc_alacak').delete().neq('id', 0),
+    ])
+    alert('Tüm veriler silindi.')
+  }
 
-      <div className="pt-2 border-t border-slate-100">
-        <p className="text-xs text-slate-400 mb-3">Tehlikeli Alan</p>
-        <button onClick={veritabaniniTemizle}
+  return (
+    <div className="p-4 md:p-6 max-w-lg mx-auto space-y-3">
+      <h2 className="text-lg font-semibold text-slate-700 mb-1">Veri İmport</h2>
+      <p className="text-xs text-slate-400 mb-4">
+        Her kalem için ayrı ayrı import yapabilirsiniz. Mevcut verilerin üzerine yazar — önce 🗑️ ile ilgili veriyi silin.
+      </p>
+
+      {IMPORTLAR.map(kalem => (
+        <ImportKalemi key={kalem.key} kalem={kalem} />
+      ))}
+
+      <div className="pt-4 border-t border-slate-100">
+        <button onClick={tumunuSil}
           className="w-full py-2.5 rounded-xl border border-red-200 text-red-500 text-sm hover:bg-red-50 transition-colors">
           Tüm Verileri Sil
         </button>
