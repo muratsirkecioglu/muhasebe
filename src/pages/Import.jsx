@@ -267,8 +267,9 @@ export default function Import() {
       if (wb.SheetNames.includes('NK'))
         sonuc.nk = await importNK(wb.Sheets['NK'])
 
-      if (wb.SheetNames.includes('Borç-Alacak'))
-        sonuc.borc = await importBorcAlacak(wb.Sheets['Borç-Alacak'])
+      const borcSheet = wb.SheetNames.find(n => n.toLowerCase().includes('bor') && n.includes('lacak'))
+      if (borcSheet)
+        sonuc.borc = await importBorcAlacak(wb.Sheets[borcSheet])
 
       setDetay(sonuc)
       setDurum('basarili')
