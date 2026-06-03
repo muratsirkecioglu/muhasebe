@@ -30,7 +30,10 @@ function donemHesapla(tarih) {
 function sayi(val) {
   if (val === null || val === undefined || val === '') return 0
   if (typeof val === 'number') return val
-  return parseFloat(String(val).replace(/,/g, '')) || 0
+  const s = String(val).replace(/,/g, '').trim()
+  // Muhasebe formatı: (20000) → -20000
+  if (/^\([\d.]+\)$/.test(s)) return -(parseFloat(s.slice(1, -1)) || 0)
+  return parseFloat(s) || 0
 }
 
 // --- Gider Detay import ---
@@ -87,7 +90,11 @@ async function importBirikim(ws) {
   const hucre = (r, c) => {
     const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
     const cell = ws[addr]
-    return cell ? cell.v : null
+    if (!cell) return null
+    // Sayısal hücrelerde cell.w (formatlanmış görüntü) kullan
+    // Excel muhasebe formatı negatif sayıları (20000) şeklinde gösterir
+    if (cell.t === 'n' && cell.w !== undefined) return cell.w
+    return cell.v
   }
 
   for (let r = 18; r <= sonSatir; r++) {
@@ -224,7 +231,9 @@ async function importBorcAlacak(ws) {
   const hucre = (r, c) => {
     const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
     const cell = ws[addr]
-    return cell ? cell.v : null
+    if (!cell) return null
+    if (cell.t === 'n' && cell.w !== undefined) return cell.w
+    return cell.v
   }
 
   let sonKisi = null
