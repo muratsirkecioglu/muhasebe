@@ -91,9 +91,11 @@ async function importBirikim(ws) {
     const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
     const cell = ws[addr]
     if (!cell) return null
-    // Sayısal hücrelerde cell.w (formatlanmış görüntü) kullan
-    // Excel muhasebe formatı negatif sayıları (20000) şeklinde gösterir
-    if (cell.t === 'n' && cell.w !== undefined) return cell.w
+    if (cell.t === 'n') {
+      // Muhasebe formatı: cell.w parantez gösteriyorsa (örn. "(64.400)") değer negatiftir
+      if (cell.w && /^\(/.test(cell.w.trim())) return -Math.abs(cell.v)
+      return cell.v
+    }
     return cell.v
   }
 
@@ -232,7 +234,10 @@ async function importBorcAlacak(ws) {
     const addr = XLSX.utils.encode_cell({ r: r - 1, c: c - 1 })
     const cell = ws[addr]
     if (!cell) return null
-    if (cell.t === 'n' && cell.w !== undefined) return cell.w
+    if (cell.t === 'n') {
+      if (cell.w && /^\(/.test(cell.w.trim())) return -Math.abs(cell.v)
+      return cell.v
+    }
     return cell.v
   }
 
