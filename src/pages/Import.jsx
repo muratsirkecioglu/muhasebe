@@ -163,6 +163,26 @@ async function importBirikim(ws) {
   return kayitlar.length
 }
 
+// --- NK Transfer import ---
+async function importNK(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+  const kayitlar = []
+  for (let i = 1; i < rows.length; i++) {
+    const [tarihVal, kVal, nVal, donemVal] = rows[i]
+    if (!tarihVal) continue
+    const tarih = parseTarih(tarihVal)
+    if (!tarih) continue
+    const k = sayi(kVal)
+    const n = sayi(nVal)
+    if (k === 0 && n === 0) continue
+    const donem = donemVal ? parseInt(String(donemVal)) : donemHesapla(tarih)
+    kayitlar.push({ tarih: tarih.toISOString(), donem, k, n })
+  }
+  for (let i = 0; i < kayitlar.length; i += 500)
+    await supabase.from('nk_transferler').insert(kayitlar.slice(i, i + 500))
+  return kayitlar.length
+}
+
 // --- Borç-Alacak import ---
 async function importBorcAlacak(ws) {
   const kayitlar = []
@@ -244,6 +264,9 @@ export default function Import() {
       if (wb.SheetNames.includes('Birikim'))
         sonuc.birikim = await importBirikim(wb.Sheets['Birikim'])
 
+      if (wb.SheetNames.includes('NK'))
+        sonuc.nk = await importNK(wb.Sheets['NK'])
+
       if (wb.SheetNames.includes('Borç-Alacak'))
         sonuc.borc = await importBorcAlacak(wb.Sheets['Borç-Alacak'])
 
@@ -313,6 +336,7 @@ export default function Import() {
               {detay.gider != null && <p>✓ {detay.gider} gider kaydı</p>}
               {detay.gelir != null && <p>✓ {detay.gelir} gelir kaydı</p>}
               {detay.birikim != null && <p>✓ {detay.birikim} birikim hareketi (TL, Altın, Döviz, İnşaat...)</p>}
+              {detay.nk != null && <p>✓ {detay.nk} NK transfer kaydı</p>}
               {detay.borc != null && <p>✓ {detay.borc} borç/alacak hareketi</p>}
             </div>
           </div>

@@ -2,7 +2,66 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara } from '../db'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { TrendingUp, TrendingDown, Wallet, Calendar } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, Calendar, Landmark, Banknote, ArrowLeftRight } from 'lucide-react'
+
+function TransferFormu({ onKapat, onKayit }) {
+  const [yon, setYon] = useState('cek') // 'cek' = bankadan nakit çek, 'yukle' = nakiti bankaya yükle
+  const [tutar, setTutar] = useState('')
+  const [tarih, setTarih] = useState(new Date().toISOString().split('T')[0])
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    const t = parseFloat(tutar) || 0
+    const d = new Date(tarih)
+    const donem = d.getFullYear() * 100 + d.getMonth() + 1
+    await supabase.from('nk_transferler').insert({
+      tarih, donem,
+      k: yon === 'yukle' ? t : 0,  // bankaya yüklenen
+      n: yon === 'cek' ? t : 0,    // bankadan çekilen
+    })
+    onKayit(); onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">🔄 Banka ↔ Nakit Transfer</h3>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div className="flex gap-2">
+            {[['cek', '🏦→💵 Bankadan Çek'], ['yukle', '💵→🏦 Bankaya Yükle']].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setYon(val)}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                  yon === val ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
+            <input type="date" value={tarih} onChange={e => setTarih(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
+            <input type="number" step="0.01" value={tutar} onChange={e => setTutar(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function KartBilgi({ baslik, deger, alt, renk, Icon }) {
   return (
@@ -27,6 +86,8 @@ export default function Dashboard() {
   const [giderler, setGiderler] = useState([])
   const [sonAylar, setSonAylar] = useState([])
   const [kategoriGrup, setKategoriGrup] = useState([])
+  const [bakiye, setBakiye] = useState({ K: 0, N: 0 })
+  const [transfer, setTransfer] = useState(false)
   const [yukleniyor, setYukleniyor] = useState(true)
 
   useEffect(() => {
@@ -68,6 +129,26 @@ export default function Dashboard() {
         })
       }
       setSonAylar(aylar)
+
+      // Tüm zamanlı K/N bakiyesi
+      const [{ data: tumGelir }, { data: tumGider }, { data: nkData }] = await Promise.all([
+        supabase.from('gelirler').select('k, hesap'),
+        supabase.from('giderler').select('k, hesap'),
+        supabase.from('nk_transferler').select('k, n'),
+      ])
+
+      const bankaGelir = (tumGelir || []).filter(r => r.hesap !== 'N').reduce((s, r) => s + (r.k || 0), 0)
+      const bankaGider = (tumGider || []).filter(r => r.hesap !== 'N').reduce((s, r) => s + (r.k || 0), 0)
+      const nakitGelir = (tumGelir || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
+      const nakitGider = (tumGider || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
+      const nkBankayaYuklenen = (nkData || []).reduce((s, r) => s + (r.k || 0), 0)
+      const nkBankadanCekilen = (nkData || []).reduce((s, r) => s + (r.n || 0), 0)
+
+      setBakiye({
+        K: bankaGelir - bankaGider - nkBankadanCekilen + nkBankayaYuklenen,
+        N: nakitGelir - nakitGider + nkBankadanCekilen - nkBankayaYuklenen,
+      })
+
       setYukleniyor(false)
     }
     yukle()
@@ -88,6 +169,28 @@ export default function Dashboard() {
       <div className="flex items-center gap-2 mb-6">
         <Calendar size={18} className="text-blue-600" />
         <h2 className="text-lg font-semibold text-slate-700">{donemLabel(donem)} — Aylık Özet</h2>
+      </div>
+
+      {/* Banka / Nakit anlık bakiye */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="bg-blue-600 rounded-2xl p-4 text-white">
+          <div className="flex items-center gap-2 mb-1">
+            <Landmark size={16} className="opacity-70" />
+            <p className="text-xs opacity-70">Banka (K)</p>
+          </div>
+          <p className="text-2xl font-bold">₺{formatPara(bakiye.K)}</p>
+        </div>
+        <div className="bg-slate-700 rounded-2xl p-4 text-white relative">
+          <div className="flex items-center gap-2 mb-1">
+            <Banknote size={16} className="opacity-70" />
+            <p className="text-xs opacity-70">Nakit (N)</p>
+          </div>
+          <p className="text-2xl font-bold">₺{formatPara(bakiye.N)}</p>
+          <button onClick={() => setTransfer(true)}
+            className="absolute top-3 right-3 bg-white/20 hover:bg-white/30 p-1.5 rounded-lg transition-colors">
+            <ArrowLeftRight size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -132,6 +235,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {transfer && <TransferFormu onKapat={() => setTransfer(false)} onKayit={() => { setTransfer(false); window.location.reload() }} />}
 
       {!gelirler.length && !giderler.length && (
         <div className="text-center py-12 text-slate-400">

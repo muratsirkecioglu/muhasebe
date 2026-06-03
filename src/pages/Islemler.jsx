@@ -8,6 +8,7 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
     tarih: new Date().toISOString().split('T')[0],
     kategori: tur === 'gider' ? GIDER_KATEGORILER[0] : GELIR_TURLERI[0],
     k: '',
+    hesap: 'K',
     aciklama: '',
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
@@ -19,22 +20,18 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
     const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama }
 
     if (tur === 'gider') {
-      await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori })
+      await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori, hesap: form.hesap })
 
       // Birikim kategorisiyse otomatik birikim_hareketler'e de ekle
       if (form.kategori === 'Birikim') {
         await supabase.from('birikim_hareketler').insert({
-          tarih: form.tarih,
-          tur: 'TL',
-          alt_tip: 'Birikim',
-          miktar: tutar,
-          islem_tl: tutar,
-          kur: 1,
+          tarih: form.tarih, tur: 'TL', alt_tip: 'Birikim',
+          miktar: tutar, islem_tl: tutar, kur: 1,
           aciklama: form.aciklama || null,
         })
       }
     } else {
-      await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori })
+      await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori, hesap: form.hesap })
     }
 
     onKayit()
@@ -68,6 +65,19 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
               onChange={e => setForm(f => ({ ...f, k: e.target.value }))}
               placeholder="0,00"
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Hesap</label>
+            <div className="flex gap-2">
+              {[['K', '🏦 Banka'], ['N', '💵 Nakit']].map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setForm(f => ({ ...f, hesap: val }))}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                    form.hesap === val ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
@@ -163,9 +173,12 @@ export default function Islemler() {
                 </div>
                 <p className="text-xs text-slate-400">{new Date(r.tarih).toLocaleDateString('tr-TR')}</p>
               </div>
-              <p className={`text-sm font-bold flex-shrink-0 ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>
-                {r._tur === 'gelir' ? '+' : '-'}₺{formatPara(r.k)}
-              </p>
+              <div className="text-right flex-shrink-0">
+                <p className={`text-sm font-bold ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>
+                  {r._tur === 'gelir' ? '+' : '-'}₺{formatPara(r.k)}
+                </p>
+                <span className="text-xs text-slate-400">{r.hesap === 'N' ? '💵 Nakit' : '🏦 Banka'}</span>
+              </div>
               <button onClick={() => sil(r._tablo, r.id)}
                 className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
                 <Trash2 size={15} />
