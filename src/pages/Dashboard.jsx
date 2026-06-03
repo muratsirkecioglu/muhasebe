@@ -135,7 +135,7 @@ export default function Dashboard() {
     const baslangicNakit = ayarMap['baslangic_nakit'] || 0
     setBaslangic({ banka: baslangicBanka, nakit: baslangicNakit })
 
-    // Başlangıçtan sonraki hareketler (sadece K veya N seçilmiş olanlar)
+    // K/N ayrımına göre tüm hareketler
     const bankaGelir = (gelirData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
     const bankaGider = (giderData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
     const nakitGelir = (gelirData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)

@@ -34,18 +34,22 @@ function sayi(val) {
 }
 
 // --- Gider Detay import ---
+// Sütunlar: Tarih | Harcama | K(banka) | N(nakit) | Toplam | Açıklama | Dönem
 async function importGiderDetay(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
   const kayitlar = []
   for (let i = 1; i < rows.length; i++) {
-    const [tarihVal, kategori, k, , , aciklama, donemVal] = rows[i]
+    const [tarihVal, kategori, kVal, nVal, , aciklama, donemVal] = rows[i]
     if (!tarihVal || !kategori) continue
     const tarih = parseTarih(tarihVal)
     if (!tarih) continue
-    const tutar = sayi(k)
-    if (tutar <= 0) continue
+    const kTutar = sayi(kVal)
+    const nTutar = sayi(nVal)
+    if (kTutar <= 0 && nTutar <= 0) continue
     const donem = donemVal ? parseInt(String(donemVal)) : donemHesapla(tarih)
-    kayitlar.push({ tarih: tarih.toISOString(), donem, kategori: String(kategori), k: tutar, aciklama: aciklama ? String(aciklama) : '' })
+    const base = { tarih: tarih.toISOString(), donem, kategori: String(kategori), aciklama: aciklama ? String(aciklama) : '' }
+    if (kTutar > 0) kayitlar.push({ ...base, k: kTutar, hesap: 'K' })
+    if (nTutar > 0) kayitlar.push({ ...base, k: nTutar, hesap: 'N' })
   }
   for (let i = 0; i < kayitlar.length; i += 500)
     await supabase.from('giderler').insert(kayitlar.slice(i, i + 500))
@@ -53,18 +57,22 @@ async function importGiderDetay(ws) {
 }
 
 // --- Gelir Detay import ---
+// Sütunlar: Tarih | Harcama | K(banka) | N(nakit) | Açıklama | Dönem
 async function importGelirDetay(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
   const kayitlar = []
   for (let i = 1; i < rows.length; i++) {
-    const [tarihVal, tur, k, , aciklama, donemVal] = rows[i]
+    const [tarihVal, tur, kVal, nVal, aciklama, donemVal] = rows[i]
     if (!tarihVal || !tur) continue
     const tarih = parseTarih(tarihVal)
     if (!tarih) continue
-    const tutar = sayi(k)
-    if (tutar <= 0) continue
+    const kTutar = sayi(kVal)
+    const nTutar = sayi(nVal)
+    if (kTutar <= 0 && nTutar <= 0) continue
     const donem = donemVal ? parseInt(String(donemVal)) : donemHesapla(tarih)
-    kayitlar.push({ tarih: tarih.toISOString(), donem, tur: String(tur), k: tutar, aciklama: aciklama ? String(aciklama) : '' })
+    const base = { tarih: tarih.toISOString(), donem, tur: String(tur), aciklama: aciklama ? String(aciklama) : '' }
+    if (kTutar > 0) kayitlar.push({ ...base, k: kTutar, hesap: 'K' })
+    if (nTutar > 0) kayitlar.push({ ...base, k: nTutar, hesap: 'N' })
   }
   for (let i = 0; i < kayitlar.length; i += 500)
     await supabase.from('gelirler').insert(kayitlar.slice(i, i + 500))
