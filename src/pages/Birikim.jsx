@@ -99,12 +99,23 @@ function IslemFormu({ onKapat, onKayit }) {
     const k = parseFloat(kur) || null
     const tarihISO = new Date(tarih).toISOString()
 
+    // TL yatırım hesabı mı? (Birikim TL hariç TL hesaplar)
+    const tlYatirim = isTL && seciliHesap.tur !== 'Birikim (TL)'
+
     // Ana hesap kaydı
-    let gercekMiktar = m
-    let gercekTL = isTL ? m : tl
-    if (islem === 'cikis' || islem === 'satis') {
-      gercekMiktar = -m
-      gercekTL = isTL ? -m : -tl
+    // Döviz: alış=+ satış=-
+    // TL yatırım: giriş=- (para çıktı), çıkış=+ (para döndü)
+    let gercekMiktar, gercekTL
+    if (tlYatirim) {
+      gercekMiktar = islem === 'giris' ? -m : m
+      gercekTL = gercekMiktar
+    } else {
+      gercekMiktar = m
+      gercekTL = isTL ? m : tl
+      if (islem === 'cikis' || islem === 'satis') {
+        gercekMiktar = -m
+        gercekTL = isTL ? -m : -tl
+      }
     }
 
     const grupId = crypto.randomUUID()
@@ -120,11 +131,12 @@ function IslemFormu({ onKapat, onKayit }) {
       grup_id: seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0 ? grupId : null,
     }]
 
-    // Birikim (TL) karşı kaydı (Birikim (TL) olmayan hesaplar için)
+    // Birikim (TL) karşı kaydı
     if (seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0) {
       const islemAdi = islem === 'alis' ? 'alımı' : islem === 'satis' ? 'satışı' : islem === 'giris' ? 'girişi' : 'çıkışı'
       const birim = isTL ? '₺' : seciliHesap.doviz
-      const karsiMiktar = -gercekTL
+      // TL yatırım: aynı yön | Döviz: ters yön
+      const karsiMiktar = tlYatirim ? gercekTL : -gercekTL
       kayitlar.push({
         tarih: tarihISO,
         tur: 'Birikim (TL)',
