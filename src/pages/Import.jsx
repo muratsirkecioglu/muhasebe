@@ -225,6 +225,13 @@ async function importBirikim(ws) {
     kayitlar.push({ tarih: new Date('2023-03-17').toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Kripto', miktar: kriptoTL, islem_tl: kriptoTL, aciklama: 'kripto alımsatım' })
   }
 
+  // --- Fon: K(11) satır 1 × (-1) → Birikim (TL) ---
+  const fonVal = hucreOku(ws, 1, 11)
+  if (fonVal !== null && sayi(fonVal) !== 0) {
+    const fonTL = sayi(fonVal) * -1
+    kayitlar.push({ tarih: new Date('2025-01-01').toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Fon', miktar: fonTL, islem_tl: fonTL, aciklama: 'Fon Alım Satım' })
+  }
+
   for (let i = 0; i < kayitlar.length; i += 500)
     await supabase.from('birikim_hareketler').insert(kayitlar.slice(i, i + 500))
   return kayitlar.length
