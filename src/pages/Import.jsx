@@ -56,11 +56,11 @@ async function importGiderDetay(ws) {
     if (!tarih) continue
     const kTutar = sayi(kVal)
     const nTutar = sayi(nVal)
-    if (kTutar <= 0 && nTutar <= 0) continue
+    if (kTutar === 0 && nTutar === 0) continue
     const donem = donemVal ? parseInt(String(donemVal)) : donemHesapla(tarih)
     const base = { tarih: tarih.toISOString(), donem, kategori: String(kategori), aciklama: aciklama ? String(aciklama) : '' }
-    if (kTutar > 0) kayitlar.push({ ...base, k: kTutar, hesap: 'K' })
-    if (nTutar > 0) kayitlar.push({ ...base, k: nTutar, hesap: 'N' })
+    if (kTutar !== 0) kayitlar.push({ ...base, k: kTutar, hesap: 'K' })
+    if (nTutar !== 0) kayitlar.push({ ...base, k: nTutar, hesap: 'N' })
   }
   for (let i = 0; i < kayitlar.length; i += 500)
     await supabase.from('giderler').insert(kayitlar.slice(i, i + 500))
@@ -77,11 +77,11 @@ async function importGelirDetay(ws) {
     if (!tarih) continue
     const kTutar = sayi(kVal)
     const nTutar = sayi(nVal)
-    if (kTutar <= 0 && nTutar <= 0) continue
+    if (kTutar === 0 && nTutar === 0) continue
     const donem = donemVal ? parseInt(String(donemVal)) : donemHesapla(tarih)
     const base = { tarih: tarih.toISOString(), donem, tur: String(tur), aciklama: aciklama ? String(aciklama) : '' }
-    if (kTutar > 0) kayitlar.push({ ...base, k: kTutar, hesap: 'K' })
-    if (nTutar > 0) kayitlar.push({ ...base, k: nTutar, hesap: 'N' })
+    if (kTutar !== 0) kayitlar.push({ ...base, k: kTutar, hesap: 'K' })
+    if (nTutar !== 0) kayitlar.push({ ...base, k: nTutar, hesap: 'N' })
   }
   for (let i = 0; i < kayitlar.length; i += 500)
     await supabase.from('gelirler').insert(kayitlar.slice(i, i + 500))
