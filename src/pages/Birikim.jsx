@@ -275,7 +275,7 @@ export default function Birikim() {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtrelenmis.slice(0, 200).map(r => {
+          {(filtreTur === 'Tümü' ? filtrelenmis.slice(0, 200) : filtrelenmis).map(r => {
             const hesap = HESAPLAR.find(h => h.tur === r.tur)
             const birim = hesap?.doviz || 'TL'
             return (
@@ -303,8 +303,8 @@ export default function Birikim() {
               </div>
             )
           })}
-          {filtrelenmis.length > 200 && (
-            <p className="text-center text-xs text-slate-400 py-2">İlk 200 kayıt gösteriliyor. Filtre kullanın.</p>
+          {filtreTur === 'Tümü' && filtrelenmis.length > 200 && (
+            <p className="text-center text-xs text-slate-400 py-2">İlk 200 kayıt gösteriliyor. Hesap filtresi kullanın.</p>
           )}
         </div>
       )}
