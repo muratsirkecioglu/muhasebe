@@ -228,7 +228,7 @@ async function importBirikim(ws) {
   // --- Fon: K(11) satır 1 × (-1) → Birikim (TL) ---
   const fonVal = hucreOku(ws, 1, 11)
   if (fonVal !== null && sayi(fonVal) !== 0) {
-    const fonTL = sayi(fonVal) * -1
+    const fonTL = sayi(fonVal)
     kayitlar.push({ tarih: new Date('2025-01-01').toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Fon', miktar: fonTL, islem_tl: fonTL, aciklama: 'Fon Alım Satım' })
   }
 
