@@ -1,7 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
-import { Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
+
+// 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
+function donemListesi() {
+  const list = []
+  const baslangic = 201605
+  const bugun = buDonem()
+  for (let d = bugun; d >= baslangic; ) {
+    list.push(d)
+    const yil = Math.floor(d / 100)
+    const ay = d % 100
+    if (ay === 1) d = (yil - 1) * 100 + 12
+    else d = yil * 100 + (ay - 1)
+  }
+  return list
+}
 
 function IslemFormu({ tur, donem, onKapat, onKayit }) {
   const [form, setForm] = useState({
@@ -121,12 +136,7 @@ export default function Islemler() {
 
   useEffect(() => { yukle() }, [yukle])
 
-  const ayDegistir = (delta) => {
-    const yil = Math.floor(donem / 100)
-    const ay = donem % 100
-    const d = new Date(yil, ay - 1 + delta)
-    setDonem(d.getFullYear() * 100 + d.getMonth() + 1)
-  }
+  const DONEMLER = donemListesi()
 
   const sil = async (tablo, id) => {
     if (!confirm('Bu işlem silinsin mi?')) return
@@ -137,11 +147,15 @@ export default function Islemler() {
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          <button onClick={() => ayDegistir(-1)} className="p-1.5 rounded-lg hover:bg-slate-100"><ChevronLeft size={18} /></button>
-          <span className="text-sm font-semibold text-slate-700 w-20 text-center">{donemLabel(donem)}</span>
-          <button onClick={() => ayDegistir(1)} className="p-1.5 rounded-lg hover:bg-slate-100"><ChevronRight size={18} /></button>
-        </div>
+        <select
+          value={donem}
+          onChange={e => setDonem(parseInt(e.target.value))}
+          className="border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+        >
+          {DONEMLER.map(d => (
+            <option key={d} value={d}>{donemLabel(d)}</option>
+          ))}
+        </select>
         <div className="flex gap-2">
           <button onClick={() => setForm('gider')}
             className="flex items-center gap-1 bg-red-50 text-red-600 text-sm px-3 py-2 rounded-xl font-medium">
