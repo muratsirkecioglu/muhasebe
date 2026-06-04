@@ -169,8 +169,8 @@ export default function Dashboard() {
       ozet[r.tur] = (ozet[r.tur] || 0) + (r.miktar || 0)
     }
 
-    // TL toplam
-    const TL_DAHIL = ['TL', 'İnşaat', 'Büyükbaş Hayvan', 'Borç Alacak', 'Şirketi Hayriyye', 'Palandora', 'Alım Satım']
+    // TL toplam — TL Birleşik + tüm TL yatırım hesapları
+    const TL_DAHIL = ['TL Birleşik', 'Yatırım (İnşaat)', 'Yatırım (Hayvancılık)', 'Yatırım (Şirketi Hayriyye)', 'Yatırım (Palandora)', 'Yatırım (Al-Sat)']
     const birikimTL = TL_DAHIL.reduce((s, tur) => s + (ozet[tur] || 0), 0)
 
     setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })
@@ -244,12 +244,12 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
-              { tur: 'Altın Fiziki', birim: 'gr', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
-              { tur: 'Altın Banka',  birim: 'gr', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
-              { tur: 'GMS/Gümüş',   birim: 'gr', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
-              { tur: 'USD',          birim: '$',  emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
-              { tur: 'EUR',          birim: '€',  emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
-              { tur: 'GBP',          birim: '£',  emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
+              { tur: 'ALT(F)', birim: 'ALT', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
+              { tur: 'ALT(H)', birim: 'ALT', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
+              { tur: 'GMS(H)', birim: 'GMS', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
+              { tur: 'USD',    birim: 'USD', emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
+              { tur: 'EUR',    birim: 'EUR', emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
+              { tur: 'GBP',    birim: 'GBP', emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
             ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).map(v => (
               <div key={v.tur} className={`rounded-2xl p-4 border ${v.renk}`}>
                 <p className="text-xs font-semibold opacity-60 mb-1">{v.emoji} {v.tur}</p>

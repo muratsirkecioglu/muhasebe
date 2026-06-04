@@ -111,46 +111,118 @@ async function importBirikim(ws) {
   const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 1011
   const h = (r, c) => hucreOku(ws, r, c)
 
+  // TL Birleşik'e otomatik karşı giriş
+  const tlKarsi = (tarih, islemTl, aciklama) => {
+    if (!tarih || !islemTl) return
+    kayitlar.push({ tarih, tur: 'TL Birleşik', doviz_cinsi: 'TL', miktar: islemTl, islem_tl: islemTl, aciklama })
+  }
+
   for (let r = 18; r <= sonSatir; r++) {
+    // --- TL Birleşik: A(1)=tarih, B(2)+C(3)+D(4) toplam ---
     const tlTarih = parseTarih(h(r, 1))
-    const tlTutar = sayi(h(r, 2))
-    if (tlTarih && tlTutar !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Birikim', miktar: tlTutar, islem_tl: tlTutar, kur: 1 })
-    const kiraFark = sayi(h(r, 3))
-    if (tlTarih && kiraFark !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Kira Fark', miktar: kiraFark, islem_tl: kiraFark, kur: 1 })
-    const kusurat = sayi(h(r, 4))
-    if (tlTarih && kusurat !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL', alt_tip: 'Küsürat', miktar: kusurat, islem_tl: kusurat, kur: 1 })
+    const tlToplam = sayi(h(r, 2)) + sayi(h(r, 3)) + sayi(h(r, 4))
+    if (tlTarih && tlToplam !== 0)
+      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL Birleşik', doviz_cinsi: 'TL', alt_tip: 'Birikim', miktar: tlToplam, islem_tl: tlToplam })
 
-    const altinTarih = parseTarih(h(r, 5)) || tlTarih
-    const altinGram = sayi(h(r, 6)), altinTL = sayi(h(r, 7)), altinKur = sayi(h(r, 8))
-    if (altinTarih && altinGram !== 0) kayitlar.push({ tarih: altinTarih.toISOString(), tur: 'Altın', alt_tip: altinGram > 0 ? 'Alış' : 'Satış', miktar: altinGram, islem_tl: altinTL, kur: altinKur })
+    // --- Borç Alacak: K(11)=tarih, L(12)=miktar, M(13)=açıklama → TL Birleşik ---
+    const baTarih = parseTarih(h(r, 11))
+    const baMiktar = sayi(h(r, 12)), baAciklama = h(r, 13)
+    if (baTarih && baTarih.getFullYear() > 2000 && baTarih.getFullYear() < 2100 && baMiktar !== 0)
+      kayitlar.push({ tarih: baTarih.toISOString(), tur: 'TL Birleşik', doviz_cinsi: 'TL', alt_tip: 'Borç Alacak', miktar: baMiktar, islem_tl: baMiktar, aciklama: baAciklama ? String(baAciklama) : null })
 
+    // --- ALT(F) / ALT(H): E(5)=tarih, F(6)=gram, G(7)=TL, H(8)=kur, I(9)=tip ---
+    const altTarih = parseTarih(h(r, 5))
+    const altGram = sayi(h(r, 6)), altTL = sayi(h(r, 7)), altKur = sayi(h(r, 8))
+    const altTip = h(r, 9)
+    if (altTarih && altGram !== 0) {
+      const hesap = (altTip && String(altTip).trim() === 'Fiziki') ? 'ALT(F)' : 'ALT(H)'
+      const islemTip = altGram > 0 ? 'alımı' : 'satışı'
+      kayitlar.push({ tarih: altTarih.toISOString(), tur: hesap, doviz_cinsi: 'ALT', alt_tip: altGram > 0 ? 'Alış' : 'Satış', miktar: altGram, islem_tl: altTL, kur: altKur || null })
+      tlKarsi(altTarih.toISOString(), altTL, `${Math.abs(altGram)} gr ${hesap} ${islemTip}`)
+    }
+
+    // --- GMS(H): N(14)=tarih, O(15)=gram, P(16)=TL, Q(17)=kur ---
+    const gmsTarih = parseTarih(h(r, 14))
     const gmsGram = sayi(h(r, 15)), gmsTL = sayi(h(r, 16)), gmsKur = sayi(h(r, 17))
-    if (tlTarih && gmsGram !== 0) kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'GMS/Gümüş', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null })
+    if (gmsTarih && gmsGram !== 0) {
+      const islemTip = gmsGram > 0 ? 'alımı' : 'satışı'
+      kayitlar.push({ tarih: gmsTarih.toISOString(), tur: 'GMS(H)', doviz_cinsi: 'GMS', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null })
+      tlKarsi(gmsTarih.toISOString(), gmsTL, `${Math.abs(gmsGram)} gr GMS(H) ${islemTip}`)
+    }
 
-    const insaatTarih = parseTarih(h(r, 19)), insaatTip = h(r, 20), insaatTL = sayi(h(r, 21))
-    if (insaatTarih && insaatTarih.getFullYear() < 2100 && insaatTL !== 0) kayitlar.push({ tarih: insaatTarih.toISOString(), tur: 'İnşaat', alt_tip: insaatTip ? String(insaatTip) : null, miktar: insaatTL, islem_tl: insaatTL })
+    // --- Yatırım (İnşaat): S(19)=tarih, T(20)=tip, U(21)=TL ---
+    const insaatTarih = parseTarih(h(r, 19))
+    const insaatTip = h(r, 20), insaatTL = sayi(h(r, 21))
+    if (insaatTarih && insaatTarih.getFullYear() < 2100 && insaatTL !== 0) {
+      kayitlar.push({ tarih: insaatTarih.toISOString(), tur: 'Yatırım (İnşaat)', doviz_cinsi: 'TL', alt_tip: insaatTip ? String(insaatTip) : null, miktar: insaatTL, islem_tl: insaatTL })
+      tlKarsi(insaatTarih.toISOString(), insaatTL, `Yatırım (İnşaat)${insaatTip ? ' - ' + String(insaatTip) : ''}`)
+    }
 
-    const sirketTarih = parseTarih(h(r, 22)), sirketTL = sayi(h(r, 23))
-    if (sirketTarih && sirketTarih.getFullYear() > 2000 && sirketTarih.getFullYear() < 2100 && sirketTL !== 0) kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Şirketi Hayriyye', miktar: sirketTL, islem_tl: sirketTL })
+    // --- Yatırım (Şirketi Hayriyye): V(22)=tarih, W(23)=TL ---
+    const sirketTarih = parseTarih(h(r, 22))
+    const sirketTL = sayi(h(r, 23))
+    if (sirketTarih && sirketTarih.getFullYear() > 2000 && sirketTarih.getFullYear() < 2100 && sirketTL !== 0) {
+      kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Yatırım (Şirketi Hayriyye)', doviz_cinsi: 'TL', miktar: sirketTL, islem_tl: sirketTL })
+      tlKarsi(sirketTarih.toISOString(), sirketTL, 'Yatırım (Şirketi Hayriyye)')
+    }
 
-    const palandoraTarih = parseTarih(h(r, 25)), palandoraTL = sayi(h(r, 26)), palandoraAciklama = h(r, 27)
-    if (palandoraTarih && palandoraTarih.getFullYear() < 2100 && palandoraTL !== 0) kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Palandora', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null })
+    // --- Yatırım (Palandora): Y(25)=tarih, Z(26)=TL, AA(27)=açıklama ---
+    const palandoraTarih = parseTarih(h(r, 25))
+    const palandoraTL = sayi(h(r, 26)), palandoraAciklama = h(r, 27)
+    if (palandoraTarih && palandoraTarih.getFullYear() < 2100 && palandoraTL !== 0) {
+      kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Yatırım (Palandora)', doviz_cinsi: 'TL', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null })
+      tlKarsi(palandoraTarih.toISOString(), palandoraTL, `Yatırım (Palandora)${palandoraAciklama ? ' - ' + String(palandoraAciklama) : ''}`)
+    }
 
-    const usdTarih = parseTarih(h(r, 29)), usdMiktar = sayi(h(r, 30)), usdTL = sayi(h(r, 31)), usdKur = sayi(h(r, 32))
-    if (usdTarih && usdMiktar !== 0) kayitlar.push({ tarih: usdTarih.toISOString(), tur: 'USD', alt_tip: usdMiktar > 0 ? 'Alış' : 'Satış', miktar: usdMiktar, islem_tl: usdTL, kur: usdKur })
+    // --- USD: AC(29)=tarih, AD(30)=miktar, AE(31)=TL, AF(32)=kur ---
+    const usdTarih = parseTarih(h(r, 29))
+    const usdMiktar = sayi(h(r, 30)), usdTL = sayi(h(r, 31)), usdKur = sayi(h(r, 32))
+    if (usdTarih && usdMiktar !== 0) {
+      const islemTip = usdMiktar > 0 ? 'alımı' : 'satışı'
+      kayitlar.push({ tarih: usdTarih.toISOString(), tur: 'USD', doviz_cinsi: 'USD', alt_tip: usdMiktar > 0 ? 'Alış' : 'Satış', miktar: usdMiktar, islem_tl: usdTL, kur: usdKur || null })
+      tlKarsi(usdTarih.toISOString(), usdTL, `${Math.abs(usdMiktar)} USD ${islemTip}`)
+    }
 
-    const eurTarih = parseTarih(h(r, 40)), eurMiktar = sayi(h(r, 41)), eurTL = sayi(h(r, 42)), eurKur = sayi(h(r, 43))
-    if (eurTarih && eurMiktar !== 0) kayitlar.push({ tarih: eurTarih.toISOString(), tur: 'EUR', alt_tip: eurMiktar > 0 ? 'Alış' : 'Satış', miktar: eurMiktar, islem_tl: eurTL, kur: eurKur })
+    // --- EUR: AN(40)=tarih, AO(41)=miktar, AP(42)=TL, AQ(43)=kur ---
+    const eurTarih = parseTarih(h(r, 40))
+    const eurMiktar = sayi(h(r, 41)), eurTL = sayi(h(r, 42)), eurKur = sayi(h(r, 43))
+    if (eurTarih && eurMiktar !== 0) {
+      const islemTip = eurMiktar > 0 ? 'alımı' : 'satışı'
+      kayitlar.push({ tarih: eurTarih.toISOString(), tur: 'EUR', doviz_cinsi: 'EUR', alt_tip: eurMiktar > 0 ? 'Alış' : 'Satış', miktar: eurMiktar, islem_tl: eurTL, kur: eurKur || null })
+      tlKarsi(eurTarih.toISOString(), eurTL, `${Math.abs(eurMiktar)} EUR ${islemTip}`)
+    }
 
-    const gbpTarih = parseTarih(h(r, 45)), gbpMiktar = sayi(h(r, 46)), gbpTL = sayi(h(r, 47)), gbpKur = sayi(h(r, 48))
-    if (gbpTarih && gbpMiktar !== 0) kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur })
+    // --- GBP: AS(45)=tarih, AT(46)=miktar, AU(47)=TL, AV(48)=kur ---
+    const gbpTarih = parseTarih(h(r, 45))
+    const gbpMiktar = sayi(h(r, 46)), gbpTL = sayi(h(r, 47)), gbpKur = sayi(h(r, 48))
+    if (gbpTarih && gbpMiktar !== 0) {
+      const islemTip = gbpMiktar > 0 ? 'alımı' : 'satışı'
+      kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', doviz_cinsi: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur || null })
+      tlKarsi(gbpTarih.toISOString(), gbpTL, `${Math.abs(gbpMiktar)} GBP ${islemTip}`)
+    }
 
-    const buyukbasTarih = parseTarih(h(r, 54)), buyukbasTL = sayi(h(r, 55)), buyukbasAciklama = h(r, 56)
-    if (buyukbasTarih && buyukbasTarih.getFullYear() > 2000 && buyukbasTL !== 0) kayitlar.push({ tarih: buyukbasTarih.toISOString(), tur: 'Büyükbaş Hayvan', miktar: buyukbasTL, islem_tl: buyukbasTL, aciklama: buyukbasAciklama ? String(buyukbasAciklama) : null })
+    // --- Yatırım (Al-Sat): AX(50)=tarih, AY(51)=TL, AZ(52)=açıklama ---
+    const alSatTarih = parseTarih(h(r, 50))
+    const alSatTL = sayi(h(r, 51)), alSatAciklama = h(r, 52)
+    if (alSatTarih && alSatTarih.getFullYear() < 2100 && alSatTL !== 0) {
+      kayitlar.push({ tarih: alSatTarih.toISOString(), tur: 'Yatırım (Al-Sat)', doviz_cinsi: 'TL', miktar: alSatTL, islem_tl: alSatTL, aciklama: alSatAciklama ? String(alSatAciklama) : null })
+      tlKarsi(alSatTarih.toISOString(), alSatTL, `Yatırım (Al-Sat)${alSatAciklama ? ' - ' + String(alSatAciklama) : ''}`)
+    }
 
-    const sirketTarih2 = parseTarih(h(r, 22))
-    const alimSatimTarih = parseTarih(h(r, 50)), alimSatimTL = sayi(h(r, 51)), alimSatimAciklama = h(r, 52)
-    if (alimSatimTarih && alimSatimTarih.getFullYear() < 2100 && alimSatimTL !== 0) kayitlar.push({ tarih: alimSatimTarih.toISOString(), tur: 'Alım Satım', miktar: alimSatimTL, islem_tl: alimSatimTL, aciklama: alimSatimAciklama ? String(alimSatimAciklama) : null })
+    // --- Yatırım (Hayvancılık): BB(54)=tarih, BC(55)=TL, BD(56)=açıklama ---
+    const hayvanTarih = parseTarih(h(r, 54))
+    const hayvanTL = sayi(h(r, 55)), hayvanAciklama = h(r, 56)
+    if (hayvanTarih && hayvanTarih.getFullYear() > 2000 && hayvanTL !== 0) {
+      kayitlar.push({ tarih: hayvanTarih.toISOString(), tur: 'Yatırım (Hayvancılık)', doviz_cinsi: 'TL', miktar: hayvanTL, islem_tl: hayvanTL, aciklama: hayvanAciklama ? String(hayvanAciklama) : null })
+      tlKarsi(hayvanTarih.toISOString(), hayvanTL, `Yatırım (Hayvancılık)${hayvanAciklama ? ' - ' + String(hayvanAciklama) : ''}`)
+    }
+  }
+
+  // --- Kripto: AK(37) satır 12 × (-1) → TL Birleşik ---
+  const kriptoVal = hucreOku(ws, 12, 37)
+  if (kriptoVal !== null && sayi(kriptoVal) !== 0) {
+    const kriptoTL = sayi(kriptoVal) * -1
+    kayitlar.push({ tarih: new Date('2023-03-17').toISOString(), tur: 'TL Birleşik', doviz_cinsi: 'TL', alt_tip: 'Kripto', miktar: kriptoTL, islem_tl: kriptoTL, aciklama: 'kripto alımsatım' })
   }
 
   for (let i = 0; i < kayitlar.length; i += 500)
