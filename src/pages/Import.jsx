@@ -306,6 +306,9 @@ function ImportKalemi({ kalem }) {
 }
 
 export default function Import() {
+  const [tumDurum, setTumDurum] = useState(null)
+  const [tumSonuc, setTumSonuc] = useState(null)
+
   const tumunuSil = async () => {
     if (!confirm('Tüm veriler silinecek. Emin misiniz?')) return
     await Promise.all([
@@ -316,19 +319,79 @@ export default function Import() {
       supabase.from('borc_hareketler').delete().neq('id', 0),
       supabase.from('borc_alacak').delete().neq('id', 0),
     ])
+    setTumDurum(null)
+    setTumSonuc(null)
     alert('Tüm veriler silindi.')
+  }
+
+  const tumunuImport = async (e) => {
+    const dosya = e.target.files[0]
+    if (!dosya) return
+    setTumDurum('yukleniyor')
+    setTumSonuc(null)
+    try {
+      const buffer = await dosya.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: false })
+      const sonuc = {}
+      for (const kalem of IMPORTLAR) {
+        const sheetName = kalem.sheetFn(wb)
+        if (sheetName) {
+          sonuc[kalem.label] = await kalem.importFn(wb.Sheets[sheetName])
+        }
+      }
+      setTumSonuc(sonuc)
+      setTumDurum('ok')
+    } catch (err) {
+      console.error(err)
+      setTumDurum('hata')
+    } finally {
+      e.target.value = ''
+    }
   }
 
   return (
     <div className="p-4 md:p-6 max-w-lg mx-auto space-y-3">
       <h2 className="text-lg font-semibold text-slate-700 mb-1">Veri İmport</h2>
-      <p className="text-xs text-slate-400 mb-4">
-        Her kalem için ayrı ayrı import yapabilirsiniz. Mevcut verilerin üzerine yazar — önce 🗑️ ile ilgili veriyi silin.
-      </p>
 
-      {IMPORTLAR.map(kalem => (
-        <ImportKalemi key={kalem.key} kalem={kalem} />
-      ))}
+      {/* Tek seferde tümünü import */}
+      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+        <h3 className="text-sm font-semibold text-blue-700 mb-1">📂 Tüm Sayfaları İmport Et</h3>
+        <p className="text-xs text-blue-500 mb-3">Muhasebe.xlsx seçin — tüm sayfalar tek seferde aktarılır.</p>
+        <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-colors ${
+          tumDurum === 'yukleniyor' ? 'bg-blue-200 text-blue-500' : 'bg-blue-600 text-white hover:bg-blue-700'
+        }`}>
+          {tumDurum === 'yukleniyor' ? (
+            <><div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" /> Yükleniyor...</>
+          ) : (
+            <><Upload size={15} /> Muhasebe.xlsx Seç</>
+          )}
+          <input type="file" accept=".xlsx,.xls" onChange={tumunuImport} className="hidden" disabled={tumDurum === 'yukleniyor'} />
+        </label>
+
+        {tumDurum === 'ok' && tumSonuc && (
+          <div className="mt-3 bg-white rounded-xl p-3 space-y-1">
+            <p className="text-xs font-medium text-green-600 flex items-center gap-1"><CheckCircle size={12} /> Import tamamlandı!</p>
+            {Object.entries(tumSonuc).map(([label, adet]) => (
+              <p key={label} className="text-xs text-slate-500">• {label}: {adet} kayıt</p>
+            ))}
+          </div>
+        )}
+        {tumDurum === 'hata' && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-red-500 bg-white rounded-xl px-3 py-2">
+            <AlertCircle size={13} /> Hata oluştu.
+          </div>
+        )}
+      </div>
+
+      {/* Ayrı ayrı import */}
+      <div>
+        <p className="text-xs text-slate-400 mb-2 px-1">veya kalem kalem import edin:</p>
+        <div className="space-y-2">
+          {IMPORTLAR.map(kalem => (
+            <ImportKalemi key={kalem.key} kalem={kalem} />
+          ))}
+        </div>
+      </div>
 
       <div className="pt-4 border-t border-slate-100">
         <button onClick={tumunuSil}
