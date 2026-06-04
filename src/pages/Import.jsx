@@ -111,11 +111,13 @@ async function importBirikim(ws) {
   const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 1011
   const h = (r, c) => hucreOku(ws, r, c)
 
-  // Birikim (TL)'e otomatik karşı giriş
-  const tlKarsi = (tarih, islemTl, aciklama, altTip) => {
+  // Birikim (TL)'e otomatik karşı giriş — grup_id ile eşleştirme
+  const tlKarsi = (tarih, islemTl, aciklama, altTip, grupId) => {
     if (!tarih || !islemTl) return
-    kayitlar.push({ tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL', miktar: islemTl, islem_tl: islemTl, aciklama, alt_tip: altTip || null })
+    kayitlar.push({ tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL', miktar: islemTl, islem_tl: islemTl, aciklama, alt_tip: altTip || null, grup_id: grupId || null })
   }
+  // Her çift için UUID üret
+  const yeniGrup = () => crypto.randomUUID()
 
   for (let r = 18; r <= sonSatir; r++) {
     // --- Birikim (TL): A(1)=tarih, B(2)+C(3)+D(4) toplam ---
@@ -137,8 +139,9 @@ async function importBirikim(ws) {
     if (altTarih && altGram !== 0) {
       const hesap = (altTip && String(altTip).trim() === 'Fiziki') ? 'ALT(F)' : 'ALT(H)'
       const islemTip = altGram > 0 ? 'alımı' : 'satışı'
-      kayitlar.push({ tarih: altTarih.toISOString(), tur: hesap, doviz_cinsi: 'ALT', alt_tip: altGram > 0 ? 'Alış' : 'Satış', miktar: altGram, islem_tl: altTL, kur: altKur || null })
-      tlKarsi(altTarih.toISOString(), altTL, `${Math.abs(altGram)} gr ${hesap} ${islemTip}`, hesap)
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: altTarih.toISOString(), tur: hesap, doviz_cinsi: 'ALT', alt_tip: altGram > 0 ? 'Alış' : 'Satış', miktar: altGram, islem_tl: altTL, kur: altKur || null, grup_id: gid })
+      tlKarsi(altTarih.toISOString(), altTL, `${Math.abs(altGram)} gr ${hesap} ${islemTip}`, hesap, gid)
     }
 
     // --- GMS(H): N(14)=tarih, O(15)=gram, P(16)=TL, Q(17)=kur ---
@@ -146,32 +149,36 @@ async function importBirikim(ws) {
     const gmsGram = sayi(h(r, 15)), gmsTL = sayi(h(r, 16)), gmsKur = sayi(h(r, 17))
     if (gmsTarih && gmsGram !== 0) {
       const islemTip = gmsGram > 0 ? 'alımı' : 'satışı'
-      kayitlar.push({ tarih: gmsTarih.toISOString(), tur: 'GMS(H)', doviz_cinsi: 'GMS', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null })
-      tlKarsi(gmsTarih.toISOString(), gmsTL, `${Math.abs(gmsGram)} gr GMS(H) ${islemTip}`, 'GMS(H)')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: gmsTarih.toISOString(), tur: 'GMS(H)', doviz_cinsi: 'GMS', alt_tip: gmsGram > 0 ? 'Alış' : 'Satış', miktar: gmsGram, islem_tl: gmsTL, kur: gmsKur || null, grup_id: gid })
+      tlKarsi(gmsTarih.toISOString(), gmsTL, `${Math.abs(gmsGram)} gr GMS(H) ${islemTip}`, 'GMS(H)', gid)
     }
 
     // --- Yatırım (İnşaat): S(19)=tarih, T(20)=tip, U(21)=TL ---
     const insaatTarih = parseTarih(h(r, 19))
     const insaatTip = h(r, 20), insaatTL = sayi(h(r, 21))
     if (insaatTarih && insaatTarih.getFullYear() < 2100 && insaatTL !== 0) {
-      kayitlar.push({ tarih: insaatTarih.toISOString(), tur: 'Yatırım (İnşaat)', doviz_cinsi: 'TL', alt_tip: insaatTip ? String(insaatTip) : null, miktar: insaatTL, islem_tl: insaatTL })
-      tlKarsi(insaatTarih.toISOString(), insaatTL, `Yatırım (İnşaat)${insaatTip ? ' - ' + String(insaatTip) : ''}`, 'Yatırım (İnşaat)')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: insaatTarih.toISOString(), tur: 'Yatırım (İnşaat)', doviz_cinsi: 'TL', alt_tip: insaatTip ? String(insaatTip) : null, miktar: insaatTL, islem_tl: insaatTL, grup_id: gid })
+      tlKarsi(insaatTarih.toISOString(), insaatTL, `Yatırım (İnşaat)${insaatTip ? ' - ' + String(insaatTip) : ''}`, 'Yatırım (İnşaat)', gid)
     }
 
     // --- Yatırım (Şirketi Hayriyye): V(22)=tarih, W(23)=TL ---
     const sirketTarih = parseTarih(h(r, 22))
     const sirketTL = sayi(h(r, 23))
     if (sirketTarih && sirketTarih.getFullYear() > 2000 && sirketTarih.getFullYear() < 2100 && sirketTL !== 0) {
-      kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Yatırım (Şirketi Hayriyye)', doviz_cinsi: 'TL', miktar: sirketTL, islem_tl: sirketTL })
-      tlKarsi(sirketTarih.toISOString(), sirketTL, 'Yatırım (Şirketi Hayriyye)', 'Yatırım (Şirketi Hayriyye)')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: sirketTarih.toISOString(), tur: 'Yatırım (Şirketi Hayriyye)', doviz_cinsi: 'TL', miktar: sirketTL, islem_tl: sirketTL, grup_id: gid })
+      tlKarsi(sirketTarih.toISOString(), sirketTL, 'Yatırım (Şirketi Hayriyye)', 'Yatırım (Şirketi Hayriyye)', gid)
     }
 
     // --- Yatırım (Palandora): Y(25)=tarih, Z(26)=TL, AA(27)=açıklama ---
     const palandoraTarih = parseTarih(h(r, 25))
     const palandoraTL = sayi(h(r, 26)), palandoraAciklama = h(r, 27)
     if (palandoraTarih && palandoraTarih.getFullYear() < 2100 && palandoraTL !== 0) {
-      kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Yatırım (Palandora)', doviz_cinsi: 'TL', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null })
-      tlKarsi(palandoraTarih.toISOString(), palandoraTL, `Yatırım (Palandora)${palandoraAciklama ? ' - ' + String(palandoraAciklama) : ''}`, 'Yatırım (Palandora)')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: palandoraTarih.toISOString(), tur: 'Yatırım (Palandora)', doviz_cinsi: 'TL', miktar: palandoraTL, islem_tl: palandoraTL, aciklama: palandoraAciklama ? String(palandoraAciklama) : null, grup_id: gid })
+      tlKarsi(palandoraTarih.toISOString(), palandoraTL, `Yatırım (Palandora)${palandoraAciklama ? ' - ' + String(palandoraAciklama) : ''}`, 'Yatırım (Palandora)', gid)
     }
 
     // --- USD: AC(29)=tarih, AD(30)=miktar, AE(31)=TL, AF(32)=kur ---
@@ -179,8 +186,9 @@ async function importBirikim(ws) {
     const usdMiktar = sayi(h(r, 30)), usdTL = sayi(h(r, 31)), usdKur = sayi(h(r, 32))
     if (usdTarih && usdMiktar !== 0) {
       const islemTip = usdMiktar > 0 ? 'alımı' : 'satışı'
-      kayitlar.push({ tarih: usdTarih.toISOString(), tur: 'USD', doviz_cinsi: 'USD', alt_tip: usdMiktar > 0 ? 'Alış' : 'Satış', miktar: usdMiktar, islem_tl: usdTL, kur: usdKur || null })
-      tlKarsi(usdTarih.toISOString(), usdTL, `${Math.abs(usdMiktar)} USD ${islemTip}`, 'USD')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: usdTarih.toISOString(), tur: 'USD', doviz_cinsi: 'USD', alt_tip: usdMiktar > 0 ? 'Alış' : 'Satış', miktar: usdMiktar, islem_tl: usdTL, kur: usdKur || null, grup_id: gid })
+      tlKarsi(usdTarih.toISOString(), usdTL, `${Math.abs(usdMiktar)} USD ${islemTip}`, 'USD', gid)
     }
 
     // --- EUR: AN(40)=tarih, AO(41)=miktar, AP(42)=TL, AQ(43)=kur ---
@@ -188,8 +196,9 @@ async function importBirikim(ws) {
     const eurMiktar = sayi(h(r, 41)), eurTL = sayi(h(r, 42)), eurKur = sayi(h(r, 43))
     if (eurTarih && eurMiktar !== 0) {
       const islemTip = eurMiktar > 0 ? 'alımı' : 'satışı'
-      kayitlar.push({ tarih: eurTarih.toISOString(), tur: 'EUR', doviz_cinsi: 'EUR', alt_tip: eurMiktar > 0 ? 'Alış' : 'Satış', miktar: eurMiktar, islem_tl: eurTL, kur: eurKur || null })
-      tlKarsi(eurTarih.toISOString(), eurTL, `${Math.abs(eurMiktar)} EUR ${islemTip}`, 'EUR')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: eurTarih.toISOString(), tur: 'EUR', doviz_cinsi: 'EUR', alt_tip: eurMiktar > 0 ? 'Alış' : 'Satış', miktar: eurMiktar, islem_tl: eurTL, kur: eurKur || null, grup_id: gid })
+      tlKarsi(eurTarih.toISOString(), eurTL, `${Math.abs(eurMiktar)} EUR ${islemTip}`, 'EUR', gid)
     }
 
     // --- GBP: AS(45)=tarih, AT(46)=miktar, AU(47)=TL, AV(48)=kur ---
@@ -197,24 +206,27 @@ async function importBirikim(ws) {
     const gbpMiktar = sayi(h(r, 46)), gbpTL = sayi(h(r, 47)), gbpKur = sayi(h(r, 48))
     if (gbpTarih && gbpMiktar !== 0) {
       const islemTip = gbpMiktar > 0 ? 'alımı' : 'satışı'
-      kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', doviz_cinsi: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur || null })
-      tlKarsi(gbpTarih.toISOString(), gbpTL, `${Math.abs(gbpMiktar)} GBP ${islemTip}`, 'GBP')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: gbpTarih.toISOString(), tur: 'GBP', doviz_cinsi: 'GBP', alt_tip: gbpMiktar > 0 ? 'Alış' : 'Satış', miktar: gbpMiktar, islem_tl: gbpTL, kur: gbpKur || null, grup_id: gid })
+      tlKarsi(gbpTarih.toISOString(), gbpTL, `${Math.abs(gbpMiktar)} GBP ${islemTip}`, 'GBP', gid)
     }
 
     // --- Yatırım (Al-Sat): AX(50)=tarih, AY(51)=TL, AZ(52)=açıklama ---
     const alSatTarih = parseTarih(h(r, 50))
     const alSatTL = sayi(h(r, 51)), alSatAciklama = h(r, 52)
     if (alSatTarih && alSatTarih.getFullYear() < 2100 && alSatTL !== 0) {
-      kayitlar.push({ tarih: alSatTarih.toISOString(), tur: 'Yatırım (Al-Sat)', doviz_cinsi: 'TL', miktar: alSatTL, islem_tl: alSatTL, aciklama: alSatAciklama ? String(alSatAciklama) : null })
-      tlKarsi(alSatTarih.toISOString(), alSatTL, `Yatırım (Al-Sat)${alSatAciklama ? ' - ' + String(alSatAciklama) : ''}`, 'Yatırım (Al-Sat)')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: alSatTarih.toISOString(), tur: 'Yatırım (Al-Sat)', doviz_cinsi: 'TL', miktar: alSatTL, islem_tl: alSatTL, aciklama: alSatAciklama ? String(alSatAciklama) : null, grup_id: gid })
+      tlKarsi(alSatTarih.toISOString(), alSatTL, `Yatırım (Al-Sat)${alSatAciklama ? ' - ' + String(alSatAciklama) : ''}`, 'Yatırım (Al-Sat)', gid)
     }
 
     // --- Yatırım (Hayvancılık): BB(54)=tarih, BC(55)=TL, BD(56)=açıklama ---
     const hayvanTarih = parseTarih(h(r, 54))
     const hayvanTL = sayi(h(r, 55)), hayvanAciklama = h(r, 56)
     if (hayvanTarih && hayvanTarih.getFullYear() > 2000 && hayvanTL !== 0) {
-      kayitlar.push({ tarih: hayvanTarih.toISOString(), tur: 'Yatırım (Hayvancılık)', doviz_cinsi: 'TL', miktar: hayvanTL, islem_tl: hayvanTL, aciklama: hayvanAciklama ? String(hayvanAciklama) : null })
-      tlKarsi(hayvanTarih.toISOString(), hayvanTL, `Yatırım (Hayvancılık)${hayvanAciklama ? ' - ' + String(hayvanAciklama) : ''}`, 'Yatırım (Hayvancılık)')
+      const gid = yeniGrup()
+      kayitlar.push({ tarih: hayvanTarih.toISOString(), tur: 'Yatırım (Hayvancılık)', doviz_cinsi: 'TL', miktar: hayvanTL, islem_tl: hayvanTL, aciklama: hayvanAciklama ? String(hayvanAciklama) : null, grup_id: gid })
+      tlKarsi(hayvanTarih.toISOString(), hayvanTL, `Yatırım (Hayvancılık)${hayvanAciklama ? ' - ' + String(hayvanAciklama) : ''}`, 'Yatırım (Hayvancılık)', gid)
     }
   }
 

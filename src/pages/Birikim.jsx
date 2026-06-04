@@ -107,6 +107,7 @@ function IslemFormu({ onKapat, onKayit }) {
       gercekTL = isTL ? -m : -tl
     }
 
+    const grupId = crypto.randomUUID()
     const kayitlar = [{
       tarih: tarihISO,
       tur: seciliHesap.tur,
@@ -116,14 +117,14 @@ function IslemFormu({ onKapat, onKayit }) {
       islem_tl: gercekTL,
       kur: k,
       aciklama: aciklama || null,
+      grup_id: seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0 ? grupId : null,
     }]
 
     // Birikim (TL) karşı kaydı (Birikim (TL) olmayan hesaplar için)
-    // Alış/Giriş → TL azalır (-), Satış/Çıkış → TL artar (+)
     if (seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0) {
       const islemAdi = islem === 'alis' ? 'alımı' : islem === 'satis' ? 'satışı' : islem === 'giris' ? 'girişi' : 'çıkışı'
       const birim = isTL ? '₺' : seciliHesap.doviz
-      const karsiMiktar = -gercekTL  // Tersine çevir
+      const karsiMiktar = -gercekTL
       kayitlar.push({
         tarih: tarihISO,
         tur: 'Birikim (TL)',
@@ -132,6 +133,7 @@ function IslemFormu({ onKapat, onKayit }) {
         islem_tl: karsiMiktar,
         alt_tip: seciliHesap.tur,
         aciklama: `${Math.abs(gercekMiktar)} ${birim} ${seciliHesap.tur} ${islemAdi}`,
+        grup_id: grupId,
       })
     }
 
@@ -271,23 +273,11 @@ export default function Birikim() {
   const sil = async (id) => {
     if (!confirm('Silinsin mi?')) return
     const kayit = hareketler.find(r => r.id === id)
-    // Ana kaydı sil
-    await supabase.from('birikim_hareketler').delete().eq('id', id)
-    if (kayit) {
-      if (kayit.tur !== 'Birikim (TL)') {
-        // Diğer hesap silindi → aynı tarihli Birikim (TL) karşı kaydını sil
-        await supabase.from('birikim_hareketler')
-          .delete()
-          .eq('tur', 'Birikim (TL)')
-          .eq('alt_tip', kayit.tur)
-          .eq('tarih', kayit.tarih)
-      } else if (kayit.alt_tip) {
-        // Birikim (TL) silindi → alt_tip hesabındaki eşleşen kaydı sil
-        await supabase.from('birikim_hareketler')
-          .delete()
-          .eq('tur', kayit.alt_tip)
-          .eq('tarih', kayit.tarih)
-      }
+    if (kayit?.grup_id) {
+      // Grup_id varsa gruptaki tüm kayıtları sil
+      await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
+    } else {
+      await supabase.from('birikim_hareketler').delete().eq('id', id)
     }
     yukle()
   }
