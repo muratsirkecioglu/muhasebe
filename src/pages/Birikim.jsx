@@ -270,7 +270,18 @@ export default function Birikim() {
 
   const sil = async (id) => {
     if (!confirm('Silinsin mi?')) return
+    // Silinecek kaydı bul
+    const kayit = hareketler.find(r => r.id === id)
+    // Ana kaydı sil
     await supabase.from('birikim_hareketler').delete().eq('id', id)
+    // Birikim (TL) dışı hesapsa karşı kaydı da sil
+    if (kayit && kayit.tur !== 'Birikim (TL)') {
+      await supabase.from('birikim_hareketler')
+        .delete()
+        .eq('tur', 'Birikim (TL)')
+        .eq('alt_tip', kayit.tur)
+        .eq('tarih', kayit.tarih)
+    }
     yukle()
   }
 
