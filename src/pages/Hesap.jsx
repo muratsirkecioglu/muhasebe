@@ -8,9 +8,9 @@ const BASLANGIC_N = 35
 
 async function aylikVerileriHesapla() {
   const [{ data: gelirler }, { data: giderler }, { data: nkler }, { data: ayarlar }] = await Promise.all([
-    supabase.from('gelirler').select('donem, k, hesap'),
-    supabase.from('giderler').select('donem, k, hesap'),
-    supabase.from('nk_transferler').select('donem, k, n'),
+    supabase.from('gelirler').select('donem, k, hesap').limit(100000),
+    supabase.from('giderler').select('donem, k, hesap').limit(100000),
+    supabase.from('nk_transferler').select('donem, k, n').limit(100000),
     supabase.from('ayarlar').select('anahtar, deger'),
   ])
 

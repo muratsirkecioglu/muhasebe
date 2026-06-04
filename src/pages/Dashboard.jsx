@@ -123,10 +123,10 @@ export default function Dashboard() {
 
     const [{ data: ayarlarData }, { data: gelirData }, { data: giderData }, { data: nkData }, { data: birikimData }] = await Promise.all([
       supabase.from('ayarlar').select('anahtar, deger'),
-      supabase.from('gelirler').select('k, hesap'),
-      supabase.from('giderler').select('k, hesap'),
-      supabase.from('nk_transferler').select('k, n'),
-      supabase.from('birikim_hareketler').select('tur, miktar'),
+      supabase.from('gelirler').select('k, hesap').limit(100000),
+      supabase.from('giderler').select('k, hesap').limit(100000),
+      supabase.from('nk_transferler').select('k, n').limit(100000),
+      supabase.from('birikim_hareketler').select('tur, miktar').limit(100000),
     ])
 
     // Başlangıç bakiyeleri
