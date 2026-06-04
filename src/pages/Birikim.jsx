@@ -1,7 +1,57 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara } from '../db'
-import { Plus, Trash2, Filter } from 'lucide-react'
+import { Plus, Trash2, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
+
+function exportExcel(hareketler) {
+  const wb = XLSX.utils.book_new()
+
+  // Her hesap için ayrı sheet
+  for (const hesap of HESAPLAR) {
+    const kayitlar = hareketler
+      .filter(r => r.tur === hesap.tur)
+      .sort((a, b) => new Date(a.tarih) - new Date(b.tarih))
+
+    if (kayitlar.length === 0) continue
+
+    const rows = kayitlar.map(r => ({
+      'Tarih': new Date(r.tarih).toLocaleDateString('tr-TR'),
+      'Alt Tip': r.alt_tip || '',
+      'Miktar': r.miktar || 0,
+      'Döviz': hesap.doviz,
+      'İşlem TL': r.islem_tl || 0,
+      'Kur': r.kur || '',
+      'Açıklama': r.aciklama || '',
+    }))
+
+    // Toplam satırı
+    const toplamMiktar = kayitlar.reduce((s, r) => s + (r.miktar || 0), 0)
+    const toplamTL = kayitlar.reduce((s, r) => s + (r.islem_tl || 0), 0)
+    rows.push({
+      'Tarih': 'TOPLAM',
+      'Alt Tip': '',
+      'Miktar': toplamMiktar,
+      'Döviz': hesap.doviz,
+      'İşlem TL': toplamTL,
+      'Kur': '',
+      'Açıklama': '',
+    })
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    // Sütun genişlikleri
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 8 },
+      { wch: 14 }, { wch: 12 }, { wch: 30 }
+    ]
+    // Sheet adı max 31 karakter
+    const sheetAd = hesap.tur.replace(/[[\]*?:/\\]/g, '').substring(0, 31)
+    XLSX.utils.book_append_sheet(wb, ws, sheetAd)
+  }
+
+  const tarih = new Date().toISOString().split('T')[0]
+  XLSX.writeFile(wb, `birikim-${tarih}.xlsx`)
+}
 
 // 12 hesap tanımı
 export const HESAPLAR = [
@@ -235,10 +285,16 @@ export default function Birikim() {
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-semibold text-slate-700">Birikim & Yatırım</h2>
-        <button onClick={() => setEkle(true)}
-          className="flex items-center gap-1 bg-blue-600 text-white text-sm px-3 py-2 rounded-xl font-medium">
-          <Plus size={15} /> İşlem
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => exportExcel(hareketler)}
+            className="flex items-center gap-1 bg-slate-100 text-slate-600 text-sm px-3 py-2 rounded-xl font-medium hover:bg-slate-200">
+            <Download size={15} /> Export
+          </button>
+          <button onClick={() => setEkle(true)}
+            className="flex items-center gap-1 bg-blue-600 text-white text-sm px-3 py-2 rounded-xl font-medium">
+            <Plus size={15} /> İşlem
+          </button>
+        </div>
       </div>
 
       {/* 12 hesap özet kartları */}
