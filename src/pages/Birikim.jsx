@@ -100,24 +100,11 @@ function IslemFormu({ onKapat, onKayit }) {
     const tarihISO = new Date(tarih).toISOString()
 
     // Ana hesap kaydı
-    // TL yatırım hesapları: giriş = para çıkıyor = negatif (Excel'deki gibi)
-    // Döviz hesapları: alış = miktar artar = pozitif
-    const tlYatirim = isTL && seciliHesap.tur !== 'Birikim (TL)'
     let gercekMiktar = m
     let gercekTL = isTL ? m : tl
     if (islem === 'cikis' || islem === 'satis') {
       gercekMiktar = -m
       gercekTL = isTL ? -m : -tl
-    }
-    // TL yatırım: giriş → negatif (yatırım = maliyet = eksi)
-    if (tlYatirim && islem === 'giris') {
-      gercekMiktar = -m
-      gercekTL = -m
-    }
-    // TL yatırım: çıkış → pozitif (geri alım = gelir = artı)
-    if (tlYatirim && islem === 'cikis') {
-      gercekMiktar = m
-      gercekTL = m
     }
 
     const grupId = crypto.randomUUID()
@@ -238,7 +225,7 @@ function IslemFormu({ onKapat, onKayit }) {
             <div className={`rounded-xl p-3 text-xs ${(islem === 'alis' || islem === 'giris') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
               {isDoviz
                 ? `${seciliHesap.tur} ${islem === 'alis' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'alis' ? 'azalır' : 'artar'}.`
-                : `${seciliHesap.tur} ${islem === 'giris' ? 'azalır (yatırım maliyeti)' : 'artar (geri alım)'}, Birikim (TL) ${islem === 'giris' ? 'azalır' : 'artar'}.`
+                : `${seciliHesap.tur} ${islem === 'giris' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'giris' ? 'azalır' : 'artar'}.`
               }
             </div>
           )}
