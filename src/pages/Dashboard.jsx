@@ -121,13 +121,28 @@ export default function Dashboard() {
   const yukle = async () => {
     setYukleniyor(true)
 
-    const [{ data: ayarlarData }, { data: gelirData }, { data: giderData }, { data: nkData }, { data: birikimData }] = await Promise.all([
+    async function tumunuCek(tablo, kolonlar) {
+      const SAYFA = 1000
+      let tumVeriler = []
+      let sayfa = 0
+      while (true) {
+        const { data, error } = await supabase.from(tablo).select(kolonlar).range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
+        if (error || !data || data.length === 0) break
+        tumVeriler = [...tumVeriler, ...data]
+        if (data.length < SAYFA) break
+        sayfa++
+      }
+      return tumVeriler
+    }
+
+    const [ayarlarRes, gelirData, giderData, nkData, birikimData] = await Promise.all([
       supabase.from('ayarlar').select('anahtar, deger'),
-      supabase.from('gelirler').select('k, hesap').limit(100000),
-      supabase.from('giderler').select('k, hesap').limit(100000),
-      supabase.from('nk_transferler').select('k, n').limit(100000),
-      supabase.from('birikim_hareketler').select('tur, miktar').limit(100000),
+      tumunuCek('gelirler', 'k, hesap'),
+      tumunuCek('giderler', 'k, hesap'),
+      tumunuCek('nk_transferler', 'k, n'),
+      tumunuCek('birikim_hareketler', 'tur, miktar'),
     ])
+    const ayarlarData = ayarlarRes.data
 
     // Başlangıç bakiyeleri
     const ayarMap = {}

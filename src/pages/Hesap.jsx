@@ -7,10 +7,28 @@ const BASLANGIC_K = 269
 const BASLANGIC_N = 35
 
 async function aylikVerileriHesapla() {
-  const [{ data: gelirler }, { data: giderler }, { data: nkler }, { data: ayarlar }] = await Promise.all([
-    supabase.from('gelirler').select('donem, k, hesap').limit(100000),
-    supabase.from('giderler').select('donem, k, hesap').limit(100000),
-    supabase.from('nk_transferler').select('donem, k, n').limit(100000),
+  // Tüm kayıtları sayfalı olarak çek
+  async function tumunuCek(tablo, kolonlar) {
+    const SAYFA = 1000
+    let tumVeriler = []
+    let sayfa = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(tablo)
+        .select(kolonlar)
+        .range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
+      if (error || !data || data.length === 0) break
+      tumVeriler = [...tumVeriler, ...data]
+      if (data.length < SAYFA) break
+      sayfa++
+    }
+    return tumVeriler
+  }
+
+  const [gelirler, giderler, nkler, { data: ayarlar }] = await Promise.all([
+    tumunuCek('gelirler', 'donem, k, hesap'),
+    tumunuCek('giderler', 'donem, k, hesap'),
+    tumunuCek('nk_transferler', 'donem, k, n'),
     supabase.from('ayarlar').select('anahtar, deger'),
   ])
 
