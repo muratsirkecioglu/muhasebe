@@ -122,7 +122,7 @@ async function importBirikim(ws) {
     const tlTarih = parseTarih(h(r, 1))
     const tlToplam = sayi(h(r, 2)) + sayi(h(r, 3)) + sayi(h(r, 4))
     if (tlTarih && tlToplam !== 0)
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Birikim', miktar: tlToplam, islem_tl: tlToplam })
+      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Birikim', miktar: tlToplam, islem_tl: tlToplam, aciklama: tlToplam > 0 ? 'yatırıma gelen' : 'yatırım hesabından çekilen' })
 
     // --- Borç Alacak: K(11)=tarih, L(12)=miktar, M(13)=açıklama → Birikim (TL) ---
     const baTarih = parseTarih(h(r, 11))
