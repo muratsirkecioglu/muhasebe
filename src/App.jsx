@@ -1,5 +1,5 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, PiggyBank, Users, Upload, Car, LogOut } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, PiggyBank, Users, Upload, Car, LogOut, BookOpen } from 'lucide-react'
 import { AuthProvider, useAuth } from './AuthContext'
 import { supabase } from './supabase'
 import Dashboard from './pages/Dashboard'
@@ -9,9 +9,11 @@ import BorcAlacak from './pages/BorcAlacak'
 import Import from './pages/Import'
 import AracMasraf from './pages/AracMasraf'
 import Login from './pages/Login'
+import Hesap from './pages/Hesap'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/hesap', icon: BookOpen, label: 'Hesap' },
   { to: '/islemler', icon: ArrowLeftRight, label: 'İşlemler' },
   { to: '/birikim', icon: PiggyBank, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
@@ -105,6 +107,7 @@ function AppShell() {
         <main className="flex-1 md:ml-56 pb-20 md:pb-0">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/hesap" element={<Hesap />} />
             <Route path="/islemler" element={<Islemler />} />
             <Route path="/birikim" element={<Birikim />} />
             <Route path="/borc" element={<BorcAlacak />} />
