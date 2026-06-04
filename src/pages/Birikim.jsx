@@ -195,12 +195,21 @@ export default function Birikim() {
 
   const yukle = useCallback(async () => {
     setYukleniyor(true)
-    const { data } = await supabase
-      .from('birikim_hareketler')
-      .select('*')
-      .order('tarih', { ascending: false })
-      .limit(100000)
-    setHareketler(data || [])
+    const SAYFA = 1000
+    let tumVeriler = []
+    let sayfa = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('birikim_hareketler')
+        .select('*')
+        .order('tarih', { ascending: false })
+        .range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
+      if (error || !data || data.length === 0) break
+      tumVeriler = [...tumVeriler, ...data]
+      if (data.length < SAYFA) break
+      sayfa++
+    }
+    setHareketler(tumVeriler)
     setYukleniyor(false)
   }, [])
 
