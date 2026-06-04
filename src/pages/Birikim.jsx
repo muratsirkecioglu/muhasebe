@@ -119,15 +119,18 @@ function IslemFormu({ onKapat, onKayit }) {
     }]
 
     // Birikim (TL) karşı kaydı (Birikim (TL) olmayan hesaplar için)
+    // Alış/Giriş → TL azalır (-), Satış/Çıkış → TL artar (+)
     if (seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0) {
       const islemAdi = islem === 'alis' ? 'alımı' : islem === 'satis' ? 'satışı' : islem === 'giris' ? 'girişi' : 'çıkışı'
       const birim = isTL ? '₺' : seciliHesap.doviz
+      const karsiMiktar = -gercekTL  // Tersine çevir
       kayitlar.push({
         tarih: tarihISO,
         tur: 'Birikim (TL)',
         doviz_cinsi: 'TL',
-        miktar: gercekTL,
-        islem_tl: gercekTL,
+        miktar: karsiMiktar,
+        islem_tl: karsiMiktar,
+        alt_tip: seciliHesap.tur,
         aciklama: `${Math.abs(gercekMiktar)} ${birim} ${seciliHesap.tur} ${islemAdi}`,
       })
     }
