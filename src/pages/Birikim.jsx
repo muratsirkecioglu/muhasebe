@@ -230,7 +230,7 @@ function IslemFormu({ onKapat, onKayit }) {
             <div className={`rounded-xl p-3 text-xs ${(islem === 'alis' || islem === 'giris') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
               {isDoviz
                 ? `${seciliHesap.tur} ${islem === 'alis' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'alis' ? 'azalır' : 'artar'}.`
-                : `${seciliHesap.tur} ${islem === 'giris' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'giris' ? 'azalır' : 'artar'}.`
+                : `${seciliHesap.tur} ve Birikim (TL) ${islem === 'giris' ? 'ikisi de artar.' : 'ikisi de azalır.'}`
               }
             </div>
           )}
