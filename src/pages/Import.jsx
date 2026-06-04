@@ -111,24 +111,24 @@ async function importBirikim(ws) {
   const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 1011
   const h = (r, c) => hucreOku(ws, r, c)
 
-  // TL Birleşik'e otomatik karşı giriş
+  // Birikim (TL)'e otomatik karşı giriş
   const tlKarsi = (tarih, islemTl, aciklama) => {
     if (!tarih || !islemTl) return
-    kayitlar.push({ tarih, tur: 'TL Birleşik', doviz_cinsi: 'TL', miktar: islemTl, islem_tl: islemTl, aciklama })
+    kayitlar.push({ tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL', miktar: islemTl, islem_tl: islemTl, aciklama })
   }
 
   for (let r = 18; r <= sonSatir; r++) {
-    // --- TL Birleşik: A(1)=tarih, B(2)+C(3)+D(4) toplam ---
+    // --- Birikim (TL): A(1)=tarih, B(2)+C(3)+D(4) toplam ---
     const tlTarih = parseTarih(h(r, 1))
     const tlToplam = sayi(h(r, 2)) + sayi(h(r, 3)) + sayi(h(r, 4))
     if (tlTarih && tlToplam !== 0)
-      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'TL Birleşik', doviz_cinsi: 'TL', alt_tip: 'Birikim', miktar: tlToplam, islem_tl: tlToplam })
+      kayitlar.push({ tarih: tlTarih.toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Birikim', miktar: tlToplam, islem_tl: tlToplam })
 
-    // --- Borç Alacak: K(11)=tarih, L(12)=miktar, M(13)=açıklama → TL Birleşik ---
+    // --- Borç Alacak: K(11)=tarih, L(12)=miktar, M(13)=açıklama → Birikim (TL) ---
     const baTarih = parseTarih(h(r, 11))
     const baMiktar = sayi(h(r, 12)), baAciklama = h(r, 13)
     if (baTarih && baTarih.getFullYear() > 2000 && baTarih.getFullYear() < 2100 && baMiktar !== 0)
-      kayitlar.push({ tarih: baTarih.toISOString(), tur: 'TL Birleşik', doviz_cinsi: 'TL', alt_tip: 'Borç Alacak', miktar: baMiktar, islem_tl: baMiktar, aciklama: baAciklama ? String(baAciklama) : null })
+      kayitlar.push({ tarih: baTarih.toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Borç Alacak', miktar: baMiktar, islem_tl: baMiktar, aciklama: baAciklama ? String(baAciklama) : null })
 
     // --- ALT(F) / ALT(H): E(5)=tarih, F(6)=gram, G(7)=TL, H(8)=kur, I(9)=tip ---
     const altTarih = parseTarih(h(r, 5))
@@ -218,11 +218,11 @@ async function importBirikim(ws) {
     }
   }
 
-  // --- Kripto: AK(37) satır 12 × (-1) → TL Birleşik ---
+  // --- Kripto: AK(37) satır 12 × (-1) → Birikim (TL) ---
   const kriptoVal = hucreOku(ws, 12, 37)
   if (kriptoVal !== null && sayi(kriptoVal) !== 0) {
     const kriptoTL = sayi(kriptoVal) * -1
-    kayitlar.push({ tarih: new Date('2023-03-17').toISOString(), tur: 'TL Birleşik', doviz_cinsi: 'TL', alt_tip: 'Kripto', miktar: kriptoTL, islem_tl: kriptoTL, aciklama: 'kripto alımsatım' })
+    kayitlar.push({ tarih: new Date('2023-03-17').toISOString(), tur: 'Birikim (TL)', doviz_cinsi: 'TL', alt_tip: 'Kripto', miktar: kriptoTL, islem_tl: kriptoTL, aciklama: 'kripto alımsatım' })
   }
 
   for (let i = 0; i < kayitlar.length; i += 500)

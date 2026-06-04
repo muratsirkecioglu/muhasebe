@@ -5,7 +5,7 @@ import { Plus, Trash2, Filter } from 'lucide-react'
 
 // 12 hesap tanımı
 export const HESAPLAR = [
-  { tur: 'TL Birleşik',               doviz: 'TL',  emoji: '💰', renk: 'bg-blue-50 border-blue-200 text-blue-800' },
+  { tur: 'Birikim (TL)',               doviz: 'TL',  emoji: '💰', renk: 'bg-blue-50 border-blue-200 text-blue-800' },
   { tur: 'ALT(F)',                     doviz: 'ALT', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-200 text-yellow-800' },
   { tur: 'ALT(H)',                     doviz: 'ALT', emoji: '🏦', renk: 'bg-amber-50 border-amber-200 text-amber-800' },
   { tur: 'GMS(H)',                     doviz: 'GMS', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
@@ -19,7 +19,7 @@ export const HESAPLAR = [
   { tur: 'Yatırım (Hayvancılık)',      doviz: 'TL',  emoji: '🐄', renk: 'bg-lime-50 border-lime-200 text-lime-800' },
 ]
 
-const TL_OLMAYAN = HESAPLAR.filter(h => h.doviz !== 'TL' || h.tur === 'TL Birleşik').filter(h => h.tur !== 'TL Birleşik')
+const TL_OLMAYAN = HESAPLAR.filter(h => h.doviz !== 'TL' || h.tur === 'Birikim (TL)').filter(h => h.tur !== 'Birikim (TL)')
 
 function IslemFormu({ onKapat, onKayit }) {
   const [seciliHesap, setSeciliHesap] = useState(HESAPLAR[0])
@@ -36,7 +36,7 @@ function IslemFormu({ onKapat, onKayit }) {
 
   const hesapDegistir = (h) => {
     setSeciliHesap(h)
-    setIslem(h.doviz === 'TL' && h.tur !== 'TL Birleşik' ? 'giris' : 'alis')
+    setIslem(h.doviz === 'TL' && h.tur !== 'Birikim (TL)' ? 'giris' : 'alis')
     setMiktar(''); setIslemTl(''); setKur('')
   }
 
@@ -68,13 +68,13 @@ function IslemFormu({ onKapat, onKayit }) {
       aciklama: aciklama || null,
     }]
 
-    // TL Birleşik karşı kaydı (TL Birleşik olmayan hesaplar için)
-    if (seciliHesap.tur !== 'TL Birleşik' && gercekTL !== 0) {
+    // Birikim (TL) karşı kaydı (Birikim (TL) olmayan hesaplar için)
+    if (seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0) {
       const islemAdi = islem === 'alis' ? 'alımı' : islem === 'satis' ? 'satışı' : islem === 'giris' ? 'girişi' : 'çıkışı'
       const birim = isTL ? '₺' : seciliHesap.doviz
       kayitlar.push({
         tarih: tarihISO,
-        tur: 'TL Birleşik',
+        tur: 'Birikim (TL)',
         doviz_cinsi: 'TL',
         miktar: gercekTL,
         islem_tl: gercekTL,
@@ -112,7 +112,7 @@ function IslemFormu({ onKapat, onKayit }) {
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">İşlem</label>
             <div className="flex gap-2">
-              {(seciliHesap.tur === 'TL Birleşik'
+              {(seciliHesap.tur === 'Birikim (TL)'
                 ? [['giris', '➕ Giriş'], ['cikis', '➖ Çıkış']]
                 : isDoviz
                   ? [['alis', '📥 Alış'], ['satis', '📤 Satış']]
@@ -166,11 +166,11 @@ function IslemFormu({ onKapat, onKayit }) {
           </div>
 
           {/* Özet */}
-          {seciliHesap.tur !== 'TL Birleşik' && (
+          {seciliHesap.tur !== 'Birikim (TL)' && (
             <div className={`rounded-xl p-3 text-xs ${(islem === 'alis' || islem === 'giris') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
               {isDoviz
-                ? `${seciliHesap.tur} ${islem === 'alis' ? 'artar' : 'azalır'}, TL Birleşik ${islem === 'alis' ? 'azalır' : 'artar'}.`
-                : `${seciliHesap.tur} ${islem === 'giris' ? 'artar' : 'azalır'}, TL Birleşik ${islem === 'giris' ? 'azalır' : 'artar'}.`
+                ? `${seciliHesap.tur} ${islem === 'alis' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'alis' ? 'azalır' : 'artar'}.`
+                : `${seciliHesap.tur} ${islem === 'giris' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'giris' ? 'azalır' : 'artar'}.`
               }
             </div>
           )}

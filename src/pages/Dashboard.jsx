@@ -169,8 +169,8 @@ export default function Dashboard() {
       ozet[r.tur] = (ozet[r.tur] || 0) + (r.miktar || 0)
     }
 
-    // TL toplam — TL Birleşik + tüm TL yatırım hesapları
-    const TL_DAHIL = ['TL Birleşik', 'Yatırım (İnşaat)', 'Yatırım (Hayvancılık)', 'Yatırım (Şirketi Hayriyye)', 'Yatırım (Palandora)', 'Yatırım (Al-Sat)']
+    // TL toplam — Birikim (TL) + tüm TL yatırım hesapları
+    const TL_DAHIL = ['Birikim (TL)', 'Yatırım (İnşaat)', 'Yatırım (Hayvancılık)', 'Yatırım (Şirketi Hayriyye)', 'Yatırım (Palandora)', 'Yatırım (Al-Sat)']
     const birikimTL = TL_DAHIL.reduce((s, tur) => s + (ozet[tur] || 0), 0)
 
     setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })
