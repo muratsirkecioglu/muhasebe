@@ -130,14 +130,14 @@ export default function Hesap() {
           <thead>
             <tr className="bg-slate-50 border-b border-slate-100">
               <th className="text-left px-3 py-2.5 font-semibold text-slate-500 sticky left-0 bg-slate-50">Dönem</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-green-600">Gelir K</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-blue-700 bg-blue-50">Hesap (B)</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-slate-700 bg-slate-100">Hesap (N)</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-green-600">Gelir B</th>
               <th className="text-right px-3 py-2.5 font-semibold text-green-400">Gelir N</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-red-500">Gider K</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-red-500">Gider B</th>
               <th className="text-right px-3 py-2.5 font-semibold text-red-300">Gider N</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-slate-400">NK→B</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-slate-400">B→NK</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-blue-700 bg-blue-50">Banka (K)</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-slate-700 bg-slate-100">Nakit (N)</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-slate-400">N-B</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-slate-400">B-N</th>
             </tr>
           </thead>
           <tbody>
@@ -147,18 +147,18 @@ export default function Hesap() {
                   {donemLabel(r.donem)}
                   {r.ilk && <span className="ml-1 text-yellow-600 text-[10px]">başlangıç</span>}
                 </td>
-                <td className="px-3 py-2 text-right text-green-600">{r.gelirK > 0 ? formatPara(r.gelirK) : '—'}</td>
-                <td className="px-3 py-2 text-right text-green-400">{r.gelirN > 0 ? formatPara(r.gelirN) : '—'}</td>
-                <td className="px-3 py-2 text-right text-red-500">{r.giderK > 0 ? formatPara(r.giderK) : '—'}</td>
-                <td className="px-3 py-2 text-right text-red-300">{r.giderN > 0 ? formatPara(r.giderN) : '—'}</td>
-                <td className="px-3 py-2 text-right text-slate-400">{r.nkK > 0 ? formatPara(r.nkK) : '—'}</td>
-                <td className="px-3 py-2 text-right text-slate-400">{r.nkN > 0 ? formatPara(r.nkN) : '—'}</td>
                 <td className={`px-3 py-2 text-right font-bold bg-blue-50 ${r.bakiyeK >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
                   {formatPara(r.bakiyeK)}
                 </td>
                 <td className={`px-3 py-2 text-right font-bold bg-slate-50 ${r.bakiyeN >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
                   {formatPara(r.bakiyeN)}
                 </td>
+                <td className="px-3 py-2 text-right text-green-600">{r.gelirK !== 0 ? formatPara(r.gelirK) : '—'}</td>
+                <td className="px-3 py-2 text-right text-green-400">{r.gelirN !== 0 ? formatPara(r.gelirN) : '—'}</td>
+                <td className="px-3 py-2 text-right text-red-500">{r.giderK !== 0 ? formatPara(r.giderK) : '—'}</td>
+                <td className="px-3 py-2 text-right text-red-300">{r.giderN !== 0 ? formatPara(r.giderN) : '—'}</td>
+                <td className="px-3 py-2 text-right text-slate-400">{r.nkK !== 0 ? formatPara(r.nkK) : '—'}</td>
+                <td className="px-3 py-2 text-right text-slate-400">{r.nkN !== 0 ? formatPara(r.nkN) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -166,7 +166,7 @@ export default function Hesap() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        Toplam {satirlar.length} ay · Başlangıç: K=₺{formatPara(BASLANGIC_K)}, N=₺{formatPara(BASLANGIC_N)}
+        Toplam {satirlar.length} ay · Başlangıç: B=₺{formatPara(BASLANGIC_K)}, N=₺{formatPara(BASLANGIC_N)}
       </p>
     </div>
   )
