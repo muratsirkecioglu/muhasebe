@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, formatTarih } from '../db'
+import TarihInput from '../components/TarihInput'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil } from 'lucide-react'
 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
@@ -194,7 +195,7 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
         <form onSubmit={kaydet} className="p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
-            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+            <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>
@@ -270,7 +271,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
-            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+            <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>
@@ -342,7 +343,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Tarihi</label>
-            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+            <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>
@@ -469,7 +470,7 @@ function EkstreFormu({ hesap, harcamalar, onKapat, onKayit }) {
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre / Ödeme Başlangıç Tarihi</label>
-            <input type="date" value={ekstreTarih} onChange={e => setEkstreTarih(e.target.value)}
+            <TarihInput value={ekstreTarih} onChange={setEkstreTarih}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
           </div>
 

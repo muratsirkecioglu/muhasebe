@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, formatTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2, Pencil } from 'lucide-react'
+import TarihInput from '../components/TarihInput'
 
 // 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
 function donemListesi() {
@@ -68,7 +69,7 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
         <form onSubmit={kaydet} className="p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
-            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+            <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>
@@ -169,7 +170,7 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
         <form onSubmit={kaydet} className="p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
-            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+            <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>

@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { formatPara } from '../db'
 import { Landmark, Banknote, ArrowLeftRight, Settings } from 'lucide-react'
 import CoinIcon from '../components/CoinIcon'
+import TarihInput from '../components/TarihInput'
 
 function TransferFormu({ onKapat, onKayit }) {
   const [yon, setYon] = useState('cek')
@@ -42,7 +43,7 @@ function TransferFormu({ onKapat, onKayit }) {
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
-            <input type="date" value={tarih} onChange={e => setTarih(e.target.value)}
+            <TarihInput value={tarih} onChange={setTarih}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           <div>
