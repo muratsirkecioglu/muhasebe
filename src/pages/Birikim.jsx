@@ -101,16 +101,25 @@ function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
       aciklama: form.aciklama || null,
     }).eq('id', kayit.id)
 
-    // Eşli Birikim(TL) kaydını güncelle (grup_id varsa ve ana kayıt TL değilse)
-    if (kayit.grup_id && kayit.tur !== 'Birikim (TL)') {
-      const tlYatirim = hesap?.doviz === 'TL'
-      // TL yatırım: aynı yön; Döviz: ters yön
-      const karsiMiktar = tlYatirim ? yeniIslemTL : -yeniIslemTL
-      await supabase.from('birikim_hareketler').update({
-        tarih: form.tarih,
-        miktar: karsiMiktar,
-        islem_tl: karsiMiktar,
-      }).eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+    if (kayit.grup_id) {
+      if (kayit.tur !== 'Birikim (TL)') {
+        // Eşli Birikim(TL) kaydını güncelle
+        const tlYatirim = hesap?.doviz === 'TL'
+        const karsiMiktar = tlYatirim ? yeniIslemTL : -yeniIslemTL
+        await supabase.from('birikim_hareketler').update({
+          tarih: form.tarih,
+          miktar: karsiMiktar,
+          islem_tl: karsiMiktar,
+        }).eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+      }
+
+      // İşlemler tablosundaki eşli kaydı güncelle (varsa)
+      // Birikim(TL) miktar > 0 → gider "Birikim", < 0 → gelir "Birikim"
+      const yeniK = Math.abs(yeniMiktar)
+      await Promise.all([
+        supabase.from('giderler').update({ tarih: form.tarih, k: yeniK }).eq('grup_id', kayit.grup_id),
+        supabase.from('gelirler').update({ tarih: form.tarih, k: yeniK }).eq('grup_id', kayit.grup_id),
+      ])
     }
 
     onKayit(); onKapat()
