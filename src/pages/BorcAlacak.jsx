@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih } from '../db'
+import { formatPara, formatTarih, GIDER_KATEGORILER } from '../db'
 import TarihInput from '../components/TarihInput'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil } from 'lucide-react'
 
@@ -312,6 +312,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
   const [form, setForm] = useState({
     tarih: bugun,
     tutar: '',
+    kategori: GIDER_KATEGORILER[0],
     aciklama: '',
     harcama_tipi: 'pesin',
     taksit_sayisi: '2',
@@ -368,6 +369,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           tarih: taksitAy.toISOString().split('T')[0],
           donem,
           tutar: parseFloat(miktar) || 0,
+          kategori: form.kategori || null,
           aciklama: `${form.aciklama || hesap.ad} (${i + 1}/${taksitler.length})`,
           tur: 'taksit',
           taksit_no: i + 1,
@@ -383,6 +385,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
         hesap_id: hesap.id,
         tarih: form.tarih,
         tutar: parseFloat(form.tutar) || 0,
+        kategori: form.kategori || null,
         aciklama: form.aciklama || null,
         harcama_tipi: 'pesin',
         taksit_sayisi: 1,
@@ -428,6 +431,14 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
             <input type="number" step="0.01" min="0" value={form.tutar}
               onChange={e => setForm(f => ({ ...f, tutar: e.target.value }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Kategorisi</label>
+            <select value={form.kategori} onChange={e => setForm(f => ({ ...f, kategori: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+              {GIDER_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
           </div>
 
           {form.harcama_tipi === 'taksitli' && (
@@ -544,6 +555,7 @@ function EkstreFormu({ hesap, harcamalar, onKapat, onKayit }) {
           tarih: ekstreTarih,
           donem,
           tutar: h.tutar,
+          kategori: h.kategori || null,
           aciklama: h.aciklama || 'Ekstre',
           tur: 'ekstre',
           grup_id: grupId,
@@ -559,6 +571,7 @@ function EkstreFormu({ hesap, harcamalar, onKapat, onKayit }) {
             tarih: t.toISOString().split('T')[0],
             donem,
             tutar: parseFloat(miktarlar[i]) || 0,
+            kategori: h.kategori || null,
             aciklama: `${h.aciklama || 'Taksit'} (${i + 1}/${miktarlar.length})`,
             tur: 'taksit',
             taksit_no: i + 1,
@@ -1056,6 +1069,9 @@ export default function BorcAlacak() {
                       <span className={`text-sm font-medium truncate ${r.odendi ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                         {r.aciklama || (r.tur === 'ekstre' ? 'Ekstre' : r.tur === 'taksit' ? 'Taksit' : r.tur === 'al' ? 'Alındı' : 'Ödendi')}
                       </span>
+                      {r.kategori && (
+                        <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full flex-shrink-0">{r.kategori}</span>
+                      )}
                       {r.taksit_no && (
                         <span className="text-xs bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full flex-shrink-0">
                           {r.taksit_no}/{r.taksit_toplam}
