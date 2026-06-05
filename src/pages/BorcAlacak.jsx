@@ -742,10 +742,46 @@ export default function BorcAlacak() {
     yukleHesaplar()
   }
 
+  const [seciliDonem, setSeciliDonem] = useState(null) // null = tümü
+
+  // Hesap değişince dönem sıfırla
+  useEffect(() => { setSeciliDonem(null) }, [secili])
+
   const seciliHesap = hesaplar.find(h => h.id === secili?.id) || null
-  const bakiye = hareketler.reduce((s, r) => s + (r.tutar || 0), 0)
-  const bekleyenSayisi = harcamalar.filter(h => !h.ekstre_kesildi).length
   const sembol = seciliHesap ? (SEMBOL[seciliHesap.doviz_cinsi] || seciliHesap.doviz_cinsi) : '₺'
+  const bekleyenSayisi = harcamalar.filter(h => !h.ekstre_kesildi).length
+  const bekleyenToplam = harcamalar.filter(h => !h.ekstre_kesildi).reduce((s, h) => s + (h.tutar || 0), 0)
+
+  // Bakiye: sadece ödenmemiş kalemler
+  const bakiye = hareketler.filter(r => !r.odendi).reduce((s, r) => s + (r.tutar || 0), 0)
+
+  // KK özet hesapları
+  const buAy = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
+  const guncelBorc = hareketler
+    .filter(r => !r.odendi && r.donem === buAy)
+    .reduce((s, r) => s + (r.tutar || 0), 0) + bekleyenToplam
+  const toplamBorc = bakiye + bekleyenToplam
+
+  // Dönem listesi (hareketlerdeki + 12 ay ileri)
+  const donemler = (() => {
+    const set = new Set(hareketler.map(r => r.donem).filter(Boolean))
+    const now = new Date()
+    for (let i = 1; i <= 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      set.add(d.getFullYear() * 100 + d.getMonth() + 1)
+    }
+    return Array.from(set).sort((a, b) => a - b)
+  })()
+
+  const donemLabel = (d) => {
+    const y = Math.floor(d / 100), m = d % 100
+    return `${y}/${String(m).padStart(2, '0')}`
+  }
+
+  // Filtrelenmiş hareketler
+  const gosterilecekHareketler = seciliDonem
+    ? hareketler.filter(r => r.donem === seciliDonem)
+    : hareketler
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
@@ -878,11 +914,42 @@ export default function BorcAlacak() {
         <>
           {/* Özet Kart */}
           <div className={`rounded-2xl p-4 mb-4 ${seciliHesap.tip === 'kk' ? 'bg-purple-50 border border-purple-100' : 'bg-red-50 border border-red-100'}`}>
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-xs text-slate-500">
+                {seciliHesap.tip === 'kk' ? '💳 Kredi Kartı' : '👤 Kişi'} — {seciliHesap.ad}
+                {seciliHesap.tip === 'kk' && seciliHesap.ekstre_gun && (
+                  <span className="ml-1 text-slate-400">· Ekstre: {seciliHesap.ekstre_gun}. gün</span>
+                )}
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setForm('duzenle-hesap')} title="Hesabı düzenle"
+                  className="p-2 rounded-xl border border-slate-200 text-slate-400 hover:border-blue-200 hover:text-blue-500 transition-colors">
+                  <Pencil size={14} />
+                </button>
+                <button onClick={kapatHesap} title="Hesabı kapat (geçmişe taşı)"
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-400 hover:border-red-200 hover:text-red-400 transition-colors">
+                  Kapat
+                </button>
+              </div>
+            </div>
+
+            {seciliHesap.tip === 'kk' ? (
+              /* KK: Güncel borç + Toplam borç */
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white rounded-xl p-3 border border-purple-100">
+                  <p className="text-xs text-slate-400 mb-1">Bu Ay Borcu</p>
+                  <p className="text-lg font-bold text-purple-700">{sembol}{formatPara(guncelBorc)}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Taksit + Bekleyen</p>
+                </div>
+                <div className="bg-white rounded-xl p-3 border border-purple-100">
+                  <p className="text-xs text-slate-400 mb-1">Toplam Borç</p>
+                  <p className="text-lg font-bold text-red-600">{sembol}{formatPara(toplamBorc)}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Tüm ödenmemiş</p>
+                </div>
+              </div>
+            ) : (
+              /* Kişi: tek bakiye */
               <div>
-                <p className="text-xs text-slate-500 mb-1">
-                  {seciliHesap.tip === 'kk' ? '💳 Kredi Kartı' : '👤 Kişi'} — {seciliHesap.ad}
-                </p>
                 <p className={`text-2xl font-bold ${bakiye > 0 ? 'text-red-600' : bakiye < 0 ? 'text-green-600' : 'text-slate-400'}`}>
                   {sembol}{formatPara(Math.abs(bakiye))}
                 </p>
@@ -890,28 +957,34 @@ export default function BorcAlacak() {
                   {bakiye > 0 ? '🔴 Borç var' : bakiye < 0 ? '🟢 Alacak var' : 'Kapalı'}
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setForm('duzenle-hesap')}
-                  title="Hesabı düzenle"
-                  className="p-2 rounded-xl border border-slate-200 text-slate-400 hover:border-blue-200 hover:text-blue-500 transition-colors">
-                  <Pencil size={14} />
-                </button>
-                <button onClick={kapatHesap}
-                  title="Hesabı kapat (geçmişe taşı)"
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-400 hover:border-red-200 hover:text-red-400 transition-colors">
-                  Kapat
-                </button>
-              </div>
-            </div>
+            )}
 
             {/* KK - Bekleyen harcama uyarısı */}
             {seciliHesap.tip === 'kk' && bekleyenSayisi > 0 && (
               <div className="mt-3 bg-orange-100 border border-orange-200 rounded-xl px-3 py-2 flex items-center justify-between">
-                <p className="text-xs text-orange-700 font-medium">{bekleyenSayisi} bekleyen harcama (ekstre kesilmedi)</p>
+                <p className="text-xs text-orange-700 font-medium">
+                  {bekleyenSayisi} bekleyen · {sembol}{formatPara(bekleyenToplam)}
+                </p>
                 <button onClick={() => setForm('ekstre')}
                   className="flex items-center gap-1 text-xs font-semibold text-orange-600 bg-white px-2.5 py-1 rounded-lg border border-orange-200">
                   <Scissors size={11} /> Kes
                 </button>
+              </div>
+            )}
+
+            {/* KK - Ekstre dönemi seçici */}
+            {seciliHesap.tip === 'kk' && donemler.length > 0 && (
+              <div className="mt-3 flex items-center gap-2">
+                <label className="text-xs text-slate-500 flex-shrink-0">Ekstre Dönemi:</label>
+                <select value={seciliDonem || ''} onChange={e => setSeciliDonem(e.target.value ? parseInt(e.target.value) : null)}
+                  className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-purple-400">
+                  <option value="">Tümü</option>
+                  {donemler.map(d => (
+                    <option key={d} value={d}>
+                      {donemLabel(d)}{d === buAy ? ' (Bu Ay)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
           </div>
@@ -968,12 +1041,14 @@ export default function BorcAlacak() {
           )}
 
           {/* Hareket Geçmişi */}
-          <p className="text-xs font-semibold text-slate-500 mb-2 px-1">📝 Hareketler</p>
-          {hareketler.length === 0 ? (
-            <div className="text-center py-10 text-slate-400 text-sm">Hareket yok.</div>
+          <p className="text-xs font-semibold text-slate-500 mb-2 px-1">
+            📝 Hareketler {seciliDonem ? `— ${donemLabel(seciliDonem)}` : ''}
+          </p>
+          {gosterilecekHareketler.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-sm">Bu dönemde hareket yok.</div>
           ) : (
             <div className="space-y-2">
-              {hareketler.map(r => (
+              {gosterilecekHareketler.map(r => (
                 <div key={r.id} className={`rounded-xl px-4 py-3 shadow-sm border flex items-center gap-3 transition-colors ${r.odendi ? 'bg-green-50 border-green-100' : 'bg-white border-slate-100'}`}>
                   <div className={`w-2 h-8 rounded-full flex-shrink-0 ${r.odendi ? 'bg-green-300' : r.tutar > 0 ? 'bg-red-400' : 'bg-green-400'}`} />
                   <div className="flex-1 min-w-0">
