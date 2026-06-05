@@ -35,25 +35,27 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
     const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama }
 
     if (tur === 'gider') {
-      await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori, hesap: form.hesap })
+      const grupId = form.kategori === 'Birikim' ? crypto.randomUUID() : null
+      await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori, hesap: form.hesap, grup_id: grupId })
 
-      // Gider "Birikim" → Birikim (TL) hesabına pozitif kayıt ("yatırıma gelen")
+      // Gider "Birikim" → Birikim (TL) hesabına pozitif kayıt
       if (form.kategori === 'Birikim') {
         await supabase.from('birikim_hareketler').insert({
           tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
           alt_tip: 'Birikim', miktar: tutar, islem_tl: tutar,
-          aciklama: 'yatırıma gelen',
+          aciklama: 'yatırıma gelen', grup_id: grupId,
         })
       }
     } else {
-      await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori, hesap: form.hesap })
+      const grupId = form.kategori === 'Birikim' ? crypto.randomUUID() : null
+      await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori, hesap: form.hesap, grup_id: grupId })
 
-      // Gelir "Birikim" → Birikim (TL) hesabından negatif kayıt ("yatırım hesabından çekilen")
+      // Gelir "Birikim" → Birikim (TL) hesabından negatif kayıt
       if (form.kategori === 'Birikim') {
         await supabase.from('birikim_hareketler').insert({
           tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
           alt_tip: 'Birikim', miktar: -tutar, islem_tl: -tutar,
-          aciklama: 'yatırım hesabından çekilen',
+          aciklama: 'yatırım hesabından çekilen', grup_id: grupId,
         })
       }
     }
@@ -149,7 +151,14 @@ export default function Islemler() {
 
   const sil = async (tablo, id) => {
     if (!confirm('Bu işlem silinsin mi?')) return
+    // Silinecek kaydı bul
+    const kayit = islemler.find(r => r._tablo === tablo && r.id === id)
+    // Ana kaydı sil
     await supabase.from(tablo).delete().eq('id', id)
+    // grup_id varsa birikim_hareketler'deki eşini de sil
+    if (kayit?.grup_id) {
+      await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
+    }
     yukle()
   }
 

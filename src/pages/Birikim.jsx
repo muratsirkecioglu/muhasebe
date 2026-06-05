@@ -279,8 +279,11 @@ export default function Birikim() {
     if (!confirm('Silinsin mi?')) return
     const kayit = hareketler.find(r => r.id === id)
     if (kayit?.grup_id) {
-      // Grup_id varsa gruptaki tüm kayıtları sil
+      // Birikim_hareketler'deki tüm grup kayıtlarını sil
       await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
+      // Gider veya gelir tarafındaki eşini de sil (Birikim kategorisi)
+      await supabase.from('giderler').delete().eq('grup_id', kayit.grup_id)
+      await supabase.from('gelirler').delete().eq('grup_id', kayit.grup_id)
     } else {
       await supabase.from('birikim_hareketler').delete().eq('id', id)
     }
