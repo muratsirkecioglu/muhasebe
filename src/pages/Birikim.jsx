@@ -88,13 +88,30 @@ function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
     setKaydediliyor(true)
     const isarMiktar = kayit.miktar >= 0 ? 1 : -1
     const isarTL = kayit.islem_tl >= 0 ? 1 : -1
+    const yeniMiktar = (parseFloat(form.miktar) || 0) * isarMiktar
+    const yeniIslemTL = (parseFloat(form.islem_tl) || 0) * isarTL
+
+    // Ana kaydı güncelle
     await supabase.from('birikim_hareketler').update({
       tarih: form.tarih,
-      miktar: (parseFloat(form.miktar) || 0) * isarMiktar,
-      islem_tl: (parseFloat(form.islem_tl) || 0) * isarTL,
+      miktar: yeniMiktar,
+      islem_tl: yeniIslemTL,
       kur: form.kur ? parseFloat(form.kur) : null,
       aciklama: form.aciklama || null,
     }).eq('id', kayit.id)
+
+    // Eşli Birikim(TL) kaydını güncelle (grup_id varsa ve ana kayıt TL değilse)
+    if (kayit.grup_id && kayit.tur !== 'Birikim (TL)') {
+      const tlYatirim = hesap?.doviz === 'TL'
+      // TL yatırım: aynı yön; Döviz: ters yön
+      const karsiMiktar = tlYatirim ? yeniIslemTL : -yeniIslemTL
+      await supabase.from('birikim_hareketler').update({
+        tarih: form.tarih,
+        miktar: karsiMiktar,
+        islem_tl: karsiMiktar,
+      }).eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+    }
+
     onKayit(); onKapat()
   }
 

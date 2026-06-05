@@ -33,13 +33,29 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
+    const yeniTutar = parseFloat(form.k) || 0
+
+    // Ana kaydı güncelle
     await supabase.from(kayit._tablo).update({
       tarih: form.tarih,
-      k: parseFloat(form.k) || 0,
+      k: yeniTutar,
       hesap: form.hesap,
       aciklama: form.aciklama,
       ...(tur === 'gider' ? { kategori: form.kategori } : { tur: form.kategori }),
     }).eq('id', kayit.id)
+
+    // Birikim kategoriliyse eşli birikim_hareketler kaydını güncelle
+    if (kayit.grup_id && form.kategori === 'Birikim') {
+      // Gider "Birikim" → birikim_hareketler pozitif (yatırıma gelen)
+      // Gelir "Birikim" → birikim_hareketler negatif (yatırımdan çekilen)
+      const birikimMiktar = tur === 'gider' ? yeniTutar : -yeniTutar
+      await supabase.from('birikim_hareketler').update({
+        tarih: form.tarih,
+        miktar: birikimMiktar,
+        islem_tl: birikimMiktar,
+      }).eq('grup_id', kayit.grup_id)
+    }
+
     onKayit(); onKapat()
   }
 
