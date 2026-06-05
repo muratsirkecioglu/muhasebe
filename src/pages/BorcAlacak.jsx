@@ -165,7 +165,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
 function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
   const sembol = SEMBOL[doviz_cinsi] || doviz_cinsi
   const [form, setForm] = useState({
-    tarih: kalem.tarih,
+    tarih: kalem.tarih ? String(kalem.tarih).split('T')[0] : new Date().toISOString().split('T')[0],
     tutar: Math.abs(kalem.tutar),
     aciklama: kalem.aciklama || '',
   })
