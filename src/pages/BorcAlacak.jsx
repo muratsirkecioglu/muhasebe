@@ -598,151 +598,122 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
 }
 
 // --- KK: Ekstre Kes Modal ---
-function EkstreFormu({ hesap, harcamalar, onKapat, onKayit }) {
-  const bekleyenler = harcamalar.filter(h => !h.ekstre_kesildi)
-  const [taksitler, setTaksitler] = useState({})
-  const [ekstreTarih, setEkstreTarih] = useState(new Date().toISOString().split('T')[0])
+function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat, onKayit }) {
+  const bekleyenPesin = harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
+  const donemOdenmemis = donemHareketler.filter(r => !r.odendi && r.tutar > 0)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
-  // Taksit miktarlarını başlat — kayıtlı varsa onu kullan, yoksa eşit dağıt
-  useEffect(() => {
-    const init = {}
-    bekleyenler.forEach(h => {
-      if (h.harcama_tipi === 'taksitli') {
-        const n = parseInt(h.taksit_sayisi) || 2
-        if (h.taksit_miktarlari && Array.isArray(h.taksit_miktarlari) && h.taksit_miktarlari.length === n) {
-          init[h.id] = h.taksit_miktarlari.map(String)
-        } else {
-          init[h.id] = taksitDagit(h.tutar, n)
-        }
-      }
-    })
-    setTaksitler(init)
-  }, [])
-
-  const taksitGuncelle = (hId, idx, deger) => {
-    setTaksitler(t => {
-      const yeni = [...t[hId]]
-      yeni[idx] = deger
-      return { ...t, [hId]: yeni }
-    })
-  }
+  const toplamTutar = [...bekleyenPesin, ...donemOdenmemis].reduce((s, r) => s + (r.tutar || 0), 0)
+  const hicKayitYok = bekleyenPesin.length === 0 && donemOdenmemis.length === 0
 
   const kesEkstre = async () => {
-    if (bekleyenler.length === 0) return
+    if (hicKayitYok) return
     setKaydediliyor(true)
-    const baslangic = new Date(ekstreTarih)
-    const grupId = crypto.randomUUID()
-    const kalemler = []
+    const bugun = new Date().toISOString().split('T')[0]
+    const donem = seciliDonem || (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
+    const giderler = []
 
-    for (const h of bekleyenler) {
-      if (h.harcama_tipi === 'pesin') {
-        const donem = baslangic.getFullYear() * 100 + baslangic.getMonth() + 1
-        kalemler.push({
-          hesap_id: hesap.id,
-          tarih: ekstreTarih,
-          donem,
-          tutar: h.tutar,
-          kategori: h.kategori || null,
-          aciklama: h.aciklama || 'Ekstre',
-          tur: 'ekstre',
-          grup_id: grupId,
-        })
-      } else {
-        const miktarlar = taksitler[h.id] || []
-        for (let i = 0; i < miktarlar.length; i++) {
-          const t = new Date(baslangic)
-          t.setMonth(t.getMonth() + i)
-          const donem = t.getFullYear() * 100 + t.getMonth() + 1
-          kalemler.push({
-            hesap_id: hesap.id,
-            tarih: t.toISOString().split('T')[0],
-            donem,
-            tutar: parseFloat(miktarlar[i]) || 0,
-            kategori: h.kategori || null,
-            aciklama: `${h.aciklama || 'Taksit'} (${i + 1}/${miktarlar.length})`,
-            tur: 'taksit',
-            taksit_no: i + 1,
-            taksit_toplam: miktarlar.length,
-            grup_id: grupId,
-          })
-        }
-      }
+    // 1. Bekleyen peşin harcamaları borc_kalemler'e ekle + ödendi işaretle
+    if (bekleyenPesin.length > 0) {
+      const yeniKalemler = bekleyenPesin.map(h => ({
+        hesap_id: hesap.id,
+        tarih: bugun,
+        donem,
+        tutar: h.tutar,
+        kategori: h.kategori || null,
+        aciklama: h.aciklama || 'Ekstre',
+        tur: 'ekstre',
+        odendi: true,
+        grup_id: crypto.randomUUID(),
+      }))
+      await supabase.from('borc_kalemler').insert(yeniKalemler)
+      await supabase.from('borc_harcamalar')
+        .update({ ekstre_kesildi: true })
+        .in('id', bekleyenPesin.map(h => h.id))
+      yeniKalemler.forEach(k => giderler.push(k))
     }
 
-    if (kalemler.length > 0)
-      await supabase.from('borc_kalemler').insert(kalemler)
+    // 2. Dönemin ödenmemiş taksitlerini ödendi olarak işaretle
+    if (donemOdenmemis.length > 0) {
+      await supabase.from('borc_kalemler')
+        .update({ odendi: true })
+        .in('id', donemOdenmemis.map(r => r.id))
+      donemOdenmemis.forEach(r => giderler.push(r))
+    }
 
-    // Harcamaları kesildi olarak işaretle
-    await supabase.from('borc_harcamalar')
-      .update({ ekstre_kesildi: true })
-      .in('id', bekleyenler.map(h => h.id))
+    // 3. Hepsini giderler tablosuna ekle
+    if (giderler.length > 0) {
+      await supabase.from('giderler').insert(giderler.map(r => ({
+        tarih: r.tarih,
+        donem: r.donem,
+        kategori: r.kategori || 'Borç',
+        k: r.tutar,
+        hesap: 'K',
+        aciklama: `${hesap.ad}${r.aciklama ? ' · ' + r.aciklama : ''}`,
+      })))
+    }
 
     onKayit(); onKapat()
   }
-
-  const toplamTutar = bekleyenler.reduce((s, h) => s + (h.tutar || 0), 0)
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">✂️ Ekstre Kes — {hesap.ad}</h3>
-          <p className="text-xs text-slate-400 mt-1">{bekleyenler.length} bekleyen · ₺{formatPara(toplamTutar)} toplam</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {donemOdenmemis.length} taksit + {bekleyenPesin.length} bekleyen · ₺{formatPara(toplamTutar)} toplam
+          </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <div>
-            <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre / Ödeme Başlangıç Tarihi</label>
-            <TarihInput value={ekstreTarih} onChange={setEkstreTarih}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
-          </div>
-
-          {bekleyenler.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-6">Bekleyen harcama yok.</p>
-          ) : bekleyenler.map(h => (
-            <div key={h.id} className="border border-slate-100 rounded-xl p-3 bg-slate-50">
-              <div className="flex items-center justify-between mb-1">
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {hicKayitYok ? (
+            <p className="text-center text-slate-400 text-sm py-6">Bu dönemde işlenecek kayıt yok.</p>
+          ) : (
+            <>
+              {donemOdenmemis.length > 0 && (
                 <div>
-                  <p className="text-sm font-medium text-slate-700">{h.aciklama || '—'}</p>
-                  <p className="text-xs text-slate-400">
-                    {formatTarih(h.tarih)} ·{' '}
-                    {h.harcama_tipi === 'pesin' ? 'Tek Çekim' : `${h.taksit_sayisi} Taksit`}
-                  </p>
-                </div>
-                <p className="text-sm font-bold text-slate-700">₺{formatPara(h.tutar)}</p>
-              </div>
-
-              {h.harcama_tipi === 'taksitli' && taksitler[h.id] && (
-                <div className="mt-3 space-y-1.5">
-                  <p className="text-xs font-medium text-slate-500">Taksit miktarları (düzenlenebilir):</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {taksitler[h.id].map((miktar, i) => (
-                      <div key={i} className="flex items-center gap-1.5 bg-white rounded-lg px-2 py-1 border border-slate-200">
-                        <span className="text-xs text-slate-400 w-12 flex-shrink-0">{i + 1}. taksit</span>
-                        <input type="number" step="0.01" value={miktar}
-                          onChange={e => taksitGuncelle(h.id, i, e.target.value)}
-                          className="flex-1 min-w-0 text-xs focus:outline-none text-right" />
-                        <span className="text-xs text-slate-400">₺</span>
+                  <p className="text-xs font-semibold text-slate-500 mb-2">📅 Bu Dönemin Taksitleri</p>
+                  <div className="space-y-2">
+                    {donemOdenmemis.map(r => (
+                      <div key={r.id} className="flex items-center gap-3 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-700 truncate">{r.aciklama || '—'}</p>
+                          {r.kategori && <p className="text-xs text-slate-400">{r.kategori}</p>}
+                        </div>
+                        <p className="text-sm font-bold text-purple-700 flex-shrink-0">₺{formatPara(r.tutar)}</p>
                       </div>
                     ))}
                   </div>
-                  <div className="flex justify-between text-xs text-slate-500 px-1">
-                    <span>Toplam:</span>
-                    <span className={Math.abs((taksitler[h.id] || []).reduce((s, v) => s + (parseFloat(v) || 0), 0) - h.tutar) > 0.01 ? 'text-red-500 font-bold' : 'text-green-600'}>
-                      ₺{formatPara((taksitler[h.id] || []).reduce((s, v) => s + (parseFloat(v) || 0), 0))}
-                      {' / '}₺{formatPara(h.tutar)}
-                    </span>
+                </div>
+              )}
+              {bekleyenPesin.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-2">⏳ Bekleyen Peşin Harcamalar</p>
+                  <div className="space-y-2">
+                    {bekleyenPesin.map(h => (
+                      <div key={h.id} className="flex items-center gap-3 bg-orange-50 border border-orange-100 rounded-xl px-3 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-700 truncate">{h.aciklama || '—'}</p>
+                          {h.kategori && <p className="text-xs text-slate-400">{h.kategori}</p>}
+                        </div>
+                        <p className="text-sm font-bold text-orange-600 flex-shrink-0">₺{formatPara(h.tutar)}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-            </div>
-          ))}
+              <div className="bg-slate-50 rounded-xl px-4 py-3 flex justify-between items-center">
+                <p className="text-sm text-slate-600">Toplam Gider</p>
+                <p className="text-base font-bold text-slate-800">₺{formatPara(toplamTutar)}</p>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="p-5 border-t border-slate-100 flex gap-3">
           <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
-          <button onClick={kesEkstre} disabled={kaydediliyor || bekleyenler.length === 0}
+          <button onClick={kesEkstre} disabled={kaydediliyor || hicKayitYok}
             className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-medium disabled:opacity-60 flex items-center justify-center gap-2">
             {kaydediliyor ? 'Kesiliyor...' : <><Scissors size={14} /> Ekstreyi Kes</>}
           </button>
@@ -1193,11 +1164,13 @@ export default function BorcAlacak() {
                       {r.tutar > 0 ? '+' : ''}{sembol}{formatPara(Math.abs(r.tutar))}
                     </p>
                   </div>
-                  <button onClick={() => toggleOdendi(r.id, r.odendi)}
-                    title={r.odendi ? 'Ödenmedi olarak işaretle' : 'Ödendi olarak işaretle'}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'}`}>
-                    {r.odendi && <span className="text-xs leading-none">✓</span>}
-                  </button>
+                  {seciliHesap?.tip === 'kk' && (
+                    <button onClick={() => toggleOdendi(r.id, r.odendi)}
+                      title={r.odendi ? 'Ödenmedi olarak işaretle' : 'Ödendi olarak işaretle'}
+                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'}`}>
+                      {r.odendi && <span className="text-xs leading-none">✓</span>}
+                    </button>
+                  )}
                   <button onClick={() => setDuzenleKalem(r)}
                     className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors flex-shrink-0">
                     <Pencil size={14} />
@@ -1237,7 +1210,13 @@ export default function BorcAlacak() {
         <HarcamaFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={yenile} />
       )}
       {form === 'ekstre' && seciliHesap?.tip === 'kk' && (
-        <EkstreFormu hesap={seciliHesap} harcamalar={harcamalar} onKapat={() => setForm(null)} onKayit={yenile} />
+        <EkstreFormu
+          hesap={seciliHesap}
+          harcamalar={harcamalar}
+          donemHareketler={seciliDonem ? hareketler.filter(r => r.donem === seciliDonem) : hareketler.filter(r => r.donem === buAy)}
+          seciliDonem={seciliDonem || buAy}
+          onKapat={() => setForm(null)}
+          onKayit={yenile} />
       )}
     </div>
   )
