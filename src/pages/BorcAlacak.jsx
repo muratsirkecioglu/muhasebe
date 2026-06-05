@@ -967,19 +967,19 @@ export default function BorcAlacak() {
           <p>Yukarıdan "Hesap Ekle" ile başlayın.</p>
         </div>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2 mb-5 -mx-4 px-4 md:mx-0 md:px-0">
-          {hesaplar.map(h => {
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+          {[...hesaplar].sort((a, b) => (a.tip === 'kk' ? -1 : 1) - (b.tip === 'kk' ? -1 : 1)).map(h => {
             const isSecili = secili?.id === h.id
             const kkRenk = isSecili ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-slate-200 text-slate-700'
             const kisiRenk = isSecili ? 'bg-red-500 text-white border-red-500' : 'bg-white border-slate-200 text-slate-700'
             return (
               <button key={h.id} onClick={() => setSecili(h)}
-                className={`flex-shrink-0 rounded-2xl p-4 text-left min-w-[150px] transition-all border-2 shadow-sm ${h.tip === 'kk' ? kkRenk : kisiRenk}`}>
+                className={`rounded-2xl p-4 text-left w-full transition-all border-2 shadow-sm ${h.tip === 'kk' ? kkRenk : kisiRenk}`}>
                 <div className="flex items-center gap-1.5 mb-2">
                   {h.tip === 'kk'
                     ? <CreditCard size={14} className={isSecili ? 'opacity-80' : 'text-purple-500'} />
                     : <User size={14} className={isSecili ? 'opacity-80' : 'text-red-400'} />}
-                  <span className="text-xs font-semibold truncate max-w-[110px]">{h.ad}</span>
+                  <span className="text-xs font-semibold truncate">{h.ad}</span>
                 </div>
                 <p className={`text-xs ${isSecili ? 'opacity-70' : 'text-slate-400'}`}>{h.doviz_cinsi}</p>
                 {h.tip === 'kk' && h.ekstre_gun && (
