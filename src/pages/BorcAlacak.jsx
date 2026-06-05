@@ -298,6 +298,15 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
 }
 
 // --- KK: Harcama Ekleme Formu ---
+function taksitDagit(tutar, sayi) {
+  const n = parseInt(sayi) || 2
+  const t = parseFloat(tutar) || 0
+  if (n <= 0 || t <= 0) return Array(n).fill('0.00')
+  const esit = Math.round(t / n * 100) / 100
+  const son = Math.round((t - esit * (n - 1)) * 100) / 100
+  return Array.from({ length: n }, (_, i) => String(i === n - 1 ? son : esit))
+}
+
 function HarcamaFormu({ hesap, onKapat, onKayit }) {
   const [form, setForm] = useState({
     tarih: new Date().toISOString().split('T')[0],
@@ -306,30 +315,50 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     harcama_tipi: 'pesin',
     taksit_sayisi: '2',
   })
+  const [taksitler, setTaksitler] = useState(['', ''])
   const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  // Tutar veya taksit sayısı değişince eşit dağıt
+  useEffect(() => {
+    if (form.harcama_tipi !== 'taksitli') return
+    setTaksitler(taksitDagit(form.tutar, form.taksit_sayisi))
+  }, [form.tutar, form.taksit_sayisi, form.harcama_tipi])
+
+  const taksitGuncelle = (idx, deger) => {
+    setTaksitler(t => { const y = [...t]; y[idx] = deger; return y })
+  }
 
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
+    const n = parseInt(form.taksit_sayisi) || 2
     await supabase.from('borc_harcamalar').insert({
       hesap_id: hesap.id,
       tarih: form.tarih,
       tutar: parseFloat(form.tutar) || 0,
       aciklama: form.aciklama || null,
       harcama_tipi: form.harcama_tipi,
-      taksit_sayisi: form.harcama_tipi === 'taksitli' ? parseInt(form.taksit_sayisi) || 2 : 1,
+      taksit_sayisi: form.harcama_tipi === 'taksitli' ? n : 1,
+      taksit_miktarlari: form.harcama_tipi === 'taksitli'
+        ? taksitler.map(v => parseFloat(v) || 0)
+        : null,
       ekstre_kesildi: false,
     })
     onKayit(); onKapat()
   }
 
+  const toplamTaksit = taksitler.reduce((s, v) => s + (parseFloat(v) || 0), 0)
+  const hedefTutar = parseFloat(form.tutar) || 0
+  const fark = Math.abs(toplamTaksit - hedefTutar)
+  const tutarEslesti = fark < 0.01
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
-        <div className="p-5 border-b border-slate-100">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[92vh]">
+        <div className="p-5 border-b border-slate-100 flex-shrink-0">
           <h3 className="font-semibold text-slate-800">💳 Harcama Ekle — {hesap.ad}</h3>
         </div>
-        <form onSubmit={kaydet} className="p-5 space-y-4">
+        <form onSubmit={kaydet} className="flex-1 overflow-y-auto p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Tipi</label>
             <div className="flex gap-2">
@@ -347,19 +376,55 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Toplam Tutar (₺)</label>
             <input type="number" step="0.01" min="0" value={form.tutar}
               onChange={e => setForm(f => ({ ...f, tutar: e.target.value }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
+
           {form.harcama_tipi === 'taksitli' && (
-            <div>
-              <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
-              <input type="number" min="2" max="60" value={form.taksit_sayisi}
-                onChange={e => setForm(f => ({ ...f, taksit_sayisi: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
-            </div>
+            <>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
+                <input type="number" min="2" max="60" value={form.taksit_sayisi}
+                  onChange={e => setForm(f => ({ ...f, taksit_sayisi: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+              </div>
+
+              {taksitler.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-medium text-slate-500">Taksit Miktarları (₺)</label>
+                    <span className={`text-xs font-semibold ${tutarEslesti ? 'text-green-600' : 'text-red-500'}`}>
+                      {formatPara(toplamTaksit)} / {formatPara(hedefTutar)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {taksitler.map((miktar, i) => (
+                      <div key={i} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                        <span className="text-xs text-slate-400 w-6 flex-shrink-0">{i + 1}.</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={miktar}
+                          onChange={e => taksitGuncelle(i, e.target.value)}
+                          className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-right"
+                        />
+                        <span className="text-xs text-slate-400">₺</span>
+                      </div>
+                    ))}
+                  </div>
+                  {!tutarEslesti && hedefTutar > 0 && (
+                    <p className="text-xs text-red-500 mt-1.5 text-center">
+                      Toplam ₺{formatPara(fark)} {toplamTaksit > hedefTutar ? 'fazla' : 'eksik'}
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           )}
+
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
             <input type="text" value={form.aciklama} onChange={e => setForm(f => ({ ...f, aciklama: e.target.value }))}
@@ -367,7 +432,8 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           </div>
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
-            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-medium disabled:opacity-60">
+            <button type="submit" disabled={kaydediliyor}
+              className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-medium disabled:opacity-60">
               {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
             </button>
           </div>
@@ -384,15 +450,17 @@ function EkstreFormu({ hesap, harcamalar, onKapat, onKayit }) {
   const [ekstreTarih, setEkstreTarih] = useState(new Date().toISOString().split('T')[0])
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
-  // Taksit miktarlarını başlat
+  // Taksit miktarlarını başlat — kayıtlı varsa onu kullan, yoksa eşit dağıt
   useEffect(() => {
     const init = {}
     bekleyenler.forEach(h => {
       if (h.harcama_tipi === 'taksitli') {
         const n = parseInt(h.taksit_sayisi) || 2
-        const esit = Math.round(h.tutar / n * 100) / 100
-        const son = Math.round((h.tutar - esit * (n - 1)) * 100) / 100
-        init[h.id] = Array.from({ length: n }, (_, i) => i === n - 1 ? son : esit)
+        if (h.taksit_miktarlari && Array.isArray(h.taksit_miktarlari) && h.taksit_miktarlari.length === n) {
+          init[h.id] = h.taksit_miktarlari.map(String)
+        } else {
+          init[h.id] = taksitDagit(h.tutar, n)
+        }
       }
     })
     setTaksitler(init)
