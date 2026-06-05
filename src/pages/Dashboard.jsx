@@ -219,6 +219,16 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+        {/* Birikim (TL) kartı */}
+        <div className="mt-3 bg-blue-50 border border-blue-100 rounded-2xl p-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <CoinIcon size={16} className="text-blue-600" />
+            <span className="text-sm font-medium text-blue-700">Birikim (TL)</span>
+          </div>
+          <span className={`text-lg font-bold ${(birikimOzet['Birikim (TL)'] || 0) >= 0 ? 'text-blue-700' : 'text-red-500'}`}>
+            ₺{formatPara(birikimOzet['Birikim (TL)'] || 0)}
+          </span>
+        </div>
         <div className="mt-2 bg-slate-800 rounded-xl px-4 py-3 flex justify-between items-center">
           <span className="text-sm text-slate-300">Toplam TL Varlık</span>
           <span className="text-lg font-bold text-white">₺{formatPara(bakiye.TL)}</span>
