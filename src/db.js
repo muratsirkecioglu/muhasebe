@@ -1,11 +1,11 @@
 export const GIDER_KATEGORILER = [
   'Gıda', 'Kira', 'Akaryakıt', 'Fatura', 'Borç', 'Eşya', 'Sağlık',
   'Giyim', 'Ulaşım', 'Eğitim', 'Eğlence', 'Hediye', 'Aidat',
-  'Temizlik M.', 'Burs', 'Diğer',
+  'Temizlik M.', 'Burs', 'Birikim', 'Diğer',
 ]
 
 export const GELIR_TURLERI = [
-  'Maaş', 'Prim', 'Yol', 'Masraf', 'Alacak', 'Hediye', 'Kira Geliri', 'Diğer',
+  'Maaş', 'Prim', 'Yol', 'Masraf', 'Alacak', 'Hediye', 'Kira Geliri', 'Birikim', 'Diğer',
 ]
 
 export function buDonem() {

@@ -37,16 +37,25 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
     if (tur === 'gider') {
       await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori, hesap: form.hesap })
 
-      // Birikim kategorisiyse otomatik birikim_hareketler'e de ekle
+      // Gider "Birikim" → Birikim (TL) hesabına pozitif kayıt ("yatırıma gelen")
       if (form.kategori === 'Birikim') {
         await supabase.from('birikim_hareketler').insert({
-          tarih: form.tarih, tur: 'TL', alt_tip: 'Birikim',
-          miktar: tutar, islem_tl: tutar, kur: 1,
-          aciklama: form.aciklama || null,
+          tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
+          alt_tip: 'Birikim', miktar: tutar, islem_tl: tutar,
+          aciklama: 'yatırıma gelen',
         })
       }
     } else {
       await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori, hesap: form.hesap })
+
+      // Gelir "Birikim" → Birikim (TL) hesabından negatif kayıt ("yatırım hesabından çekilen")
+      if (form.kategori === 'Birikim') {
+        await supabase.from('birikim_hareketler').insert({
+          tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
+          alt_tip: 'Birikim', miktar: -tutar, islem_tl: -tutar,
+          aciklama: 'yatırım hesabından çekilen',
+        })
+      }
     }
 
     onKayit()
