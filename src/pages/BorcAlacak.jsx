@@ -318,6 +318,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     taksit_sayisi: '2',
   })
   const [taksitler, setTaksitler] = useState(['', ''])
+  const [odendi, setOdendi] = useState([])
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   // Tutar veya taksit sayısı değişince eşit dağıt
@@ -326,8 +327,24 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     setTaksitler(taksitDagit(form.tutar, form.taksit_sayisi))
   }, [form.tutar, form.taksit_sayisi, form.harcama_tipi])
 
+  // İlk taksit tarihi veya sayısı değişince ödendi durumunu otomatik hesapla
+  useEffect(() => {
+    if (form.harcama_tipi !== 'taksitli') return
+    const n = parseInt(form.taksit_sayisi) || 2
+    const bugunDate = new Date(); bugunDate.setHours(0, 0, 0, 0)
+    const baslangic = new Date(form.ilk_taksit_tarihi || bugun)
+    setOdendi(Array.from({ length: n }, (_, i) => {
+      const t = new Date(baslangic)
+      t.setMonth(t.getMonth() + i)
+      return t < bugunDate
+    }))
+  }, [form.taksit_sayisi, form.ilk_taksit_tarihi, form.harcama_tipi])
+
   const taksitGuncelle = (idx, deger) => {
     setTaksitler(t => { const y = [...t]; y[idx] = deger; return y })
+  }
+  const odendiToggle = (idx) => {
+    setOdendi(o => { const y = [...o]; y[idx] = !y[idx]; return y })
   }
 
   const kaydet = async (e) => {
@@ -352,6 +369,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           taksit_no: i + 1,
           taksit_toplam: taksitler.length,
           grup_id: grupId,
+          odendi: odendi[i] || false,
         }
       })
       await supabase.from('borc_kalemler').insert(kalemler)
@@ -432,18 +450,23 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
                       {formatPara(toplamTaksit)} / {formatPara(hedefTutar)}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
                     {taksitler.map((miktar, i) => {
                       const t = new Date(form.ilk_taksit_tarihi || bugun)
                       t.setMonth(t.getMonth() + i)
                       const ay = t.toLocaleDateString('tr-TR', { month: 'short', year: '2-digit' })
+                      const isOdendi = odendi[i] || false
                       return (
-                        <div key={i} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                          <span className="text-xs text-slate-400 w-10 flex-shrink-0 leading-tight">{i + 1}.<br/><span className="text-slate-300">{ay}</span></span>
+                        <div key={i} className={`flex items-center gap-2 border rounded-xl px-3 py-2 transition-colors ${isOdendi ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                          <button type="button" onClick={() => odendiToggle(i)}
+                            className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${isOdendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300'}`}>
+                            {isOdendi && <span className="text-xs leading-none">✓</span>}
+                          </button>
+                          <span className="text-xs text-slate-500 w-12 flex-shrink-0">{i + 1}. <span className="text-slate-400">{ay}</span></span>
                           <input
                             type="number" step="0.01" min="0" value={miktar}
                             onChange={e => taksitGuncelle(i, e.target.value)}
-                            className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-right"
+                            className={`flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-right ${isOdendi ? 'text-green-700 line-through' : ''}`}
                           />
                           <span className="text-xs text-slate-400">₺</span>
                         </div>
@@ -687,6 +710,11 @@ export default function BorcAlacak() {
   const silHareket = async (id) => {
     if (!confirm('Silinsin mi?')) return
     await supabase.from('borc_kalemler').delete().eq('id', id)
+    yukleDetay(secili.id)
+  }
+
+  const toggleOdendi = async (id, mevcutDurum) => {
+    await supabase.from('borc_kalemler').update({ odendi: !mevcutDurum }).eq('id', id)
     yukleDetay(secili.id)
   }
 
@@ -949,11 +977,11 @@ export default function BorcAlacak() {
           ) : (
             <div className="space-y-2">
               {hareketler.map(r => (
-                <div key={r.id} className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-100 flex items-center gap-3">
-                  <div className={`w-2 h-8 rounded-full flex-shrink-0 ${r.tutar > 0 ? 'bg-red-400' : 'bg-green-400'}`} />
+                <div key={r.id} className={`rounded-xl px-4 py-3 shadow-sm border flex items-center gap-3 transition-colors ${r.odendi ? 'bg-green-50 border-green-100' : 'bg-white border-slate-100'}`}>
+                  <div className={`w-2 h-8 rounded-full flex-shrink-0 ${r.odendi ? 'bg-green-300' : r.tutar > 0 ? 'bg-red-400' : 'bg-green-400'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-slate-800 truncate">
+                      <span className={`text-sm font-medium truncate ${r.odendi ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                         {r.aciklama || (r.tur === 'ekstre' ? 'Ekstre' : r.tur === 'taksit' ? 'Taksit' : r.tur === 'al' ? 'Alındı' : 'Ödendi')}
                       </span>
                       {r.taksit_no && (
@@ -961,14 +989,22 @@ export default function BorcAlacak() {
                           {r.taksit_no}/{r.taksit_toplam}
                         </span>
                       )}
+                      {r.odendi && (
+                        <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full flex-shrink-0">✓ Ödendi</span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-400">{formatTarih(r.tarih)}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className={`text-sm font-bold ${r.tutar > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                    <p className={`text-sm font-bold ${r.odendi ? 'text-slate-400' : r.tutar > 0 ? 'text-red-500' : 'text-green-600'}`}>
                       {r.tutar > 0 ? '+' : ''}{sembol}{formatPara(Math.abs(r.tutar))}
                     </p>
                   </div>
+                  <button onClick={() => toggleOdendi(r.id, r.odendi)}
+                    title={r.odendi ? 'Ödenmedi olarak işaretle' : 'Ödendi olarak işaretle'}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'}`}>
+                    {r.odendi && <span className="text-xs leading-none">✓</span>}
+                  </button>
                   <button onClick={() => setDuzenleKalem(r)}
                     className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors flex-shrink-0">
                     <Pencil size={14} />
