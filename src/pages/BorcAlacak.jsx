@@ -846,8 +846,17 @@ export default function BorcAlacak() {
 
   const [seciliDonem, setSeciliDonem] = useState(null) // null = tümü
 
-  // Hesap değişince dönem sıfırla
-  useEffect(() => { setSeciliDonem(null) }, [secili])
+  // Hesap değişince: KK ise bu ayı seç, kişi ise tümünü göster
+  useEffect(() => {
+    if (!secili) return
+    const hesap = hesaplar.find(h => h.id === secili.id)
+    if (hesap?.tip === 'kk') {
+      const n = new Date()
+      setSeciliDonem(n.getFullYear() * 100 + n.getMonth() + 1)
+    } else {
+      setSeciliDonem(null)
+    }
+  }, [secili, hesaplar])
 
   const seciliHesap = hesaplar.find(h => h.id === secili?.id) || null
   const sembol = seciliHesap ? (SEMBOL[seciliHesap.doviz_cinsi] || seciliHesap.doviz_cinsi) : '₺'
