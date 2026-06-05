@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, formatTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Pencil } from 'lucide-react'
 
 // 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
 function donemListesi() {
@@ -16,6 +16,84 @@ function donemListesi() {
     else d = yil * 100 + (ay - 1)
   }
   return list
+}
+
+function DuzenleFormu({ kayit, onKapat, onKayit }) {
+  const tur = kayit._tur
+  const kategoriler = tur === 'gider' ? GIDER_KATEGORILER : GELIR_TURLERI
+  const [form, setForm] = useState({
+    tarih: kayit.tarih ? String(kayit.tarih).split('T')[0] : '',
+    kategori: kayit.kategori || '',
+    k: String(kayit.k || ''),
+    hesap: kayit.hesap || 'K',
+    aciklama: kayit.aciklama || '',
+  })
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    await supabase.from(kayit._tablo).update({
+      tarih: form.tarih,
+      k: parseFloat(form.k) || 0,
+      hesap: form.hesap,
+      aciklama: form.aciklama,
+      ...(tur === 'gider' ? { kategori: form.kategori } : { tur: form.kategori }),
+    }).eq('id', kayit.id)
+    onKayit(); onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">✏️ {tur === 'gider' ? 'Gider' : 'Gelir'} Düzenle</h3>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
+            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Kategori</label>
+            <select value={form.kategori} onChange={e => setForm(f => ({ ...f, kategori: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+              {kategoriler.map(k => <option key={k}>{k}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
+            <input type="number" step="0.01" min="0" value={form.k}
+              onChange={e => setForm(f => ({ ...f, k: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Hesap</label>
+            <div className="flex gap-2">
+              {[['K', '🏦 Banka'], ['N', '💵 Nakit']].map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setForm(f => ({ ...f, hesap: val }))}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                    form.hesap === val ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
+                  }`}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
+            <input type="text" value={form.aciklama} onChange={e => setForm(f => ({ ...f, aciklama: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 function IslemFormu({ tur, donem, onKapat, onKayit }) {
@@ -128,6 +206,7 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
 export default function Islemler() {
   const [donem, setDonem] = useState(buDonem())
   const [form, setForm] = useState(null)
+  const [duzenle, setDuzenle] = useState(null)
   const [islemler, setIslemler] = useState([])
   const [yukleniyor, setYukleniyor] = useState(true)
 
@@ -211,6 +290,10 @@ export default function Islemler() {
                 </p>
                 <span className="text-xs text-slate-400">{r.hesap === 'N' ? '💵 Nakit' : '🏦 Banka'}</span>
               </div>
+              <button onClick={() => setDuzenle(r)}
+                className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
+                <Pencil size={15} />
+              </button>
               <button onClick={() => sil(r._tablo, r.id)}
                 className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
                 <Trash2 size={15} />
@@ -221,6 +304,7 @@ export default function Islemler() {
       )}
 
       {form && <IslemFormu tur={form} donem={donem} onKapat={() => setForm(null)} onKayit={yukle} />}
+      {duzenle && <DuzenleFormu kayit={duzenle} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
     </div>
   )
 }

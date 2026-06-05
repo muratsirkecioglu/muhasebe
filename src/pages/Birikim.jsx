@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, formatTarih } from '../db'
-import { Plus, Trash2, Download } from 'lucide-react'
+import { Plus, Trash2, Download, Pencil } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 function exportExcel(hareketler) {
@@ -70,6 +70,90 @@ export const HESAPLAR = [
 ]
 
 const TL_OLMAYAN = HESAPLAR.filter(h => h.doviz !== 'TL' || h.tur === 'Birikim (TL)').filter(h => h.tur !== 'Birikim (TL)')
+
+function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
+  const hesap = HESAPLAR.find(h => h.tur === kayit.tur)
+  const isDoviz = hesap && hesap.doviz !== 'TL'
+  const [form, setForm] = useState({
+    tarih: kayit.tarih ? String(kayit.tarih).split('T')[0] : '',
+    miktar: String(Math.abs(kayit.miktar || 0)),
+    islem_tl: String(Math.abs(kayit.islem_tl || 0)),
+    kur: String(kayit.kur || ''),
+    aciklama: kayit.aciklama || '',
+  })
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    const isarMiktar = kayit.miktar >= 0 ? 1 : -1
+    const isarTL = kayit.islem_tl >= 0 ? 1 : -1
+    await supabase.from('birikim_hareketler').update({
+      tarih: form.tarih,
+      miktar: (parseFloat(form.miktar) || 0) * isarMiktar,
+      islem_tl: (parseFloat(form.islem_tl) || 0) * isarTL,
+      kur: form.kur ? parseFloat(form.kur) : null,
+      aciklama: form.aciklama || null,
+    }).eq('id', kayit.id)
+    onKayit(); onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">✏️ {kayit.tur} — Düzenle</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {kayit.miktar >= 0 ? '▲ Giriş / Alış' : '▼ Çıkış / Satış'}
+            {kayit.alt_tip ? ` · ${kayit.alt_tip}` : ''}
+          </p>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
+            <input type="date" value={form.tarih} onChange={e => setForm(f => ({ ...f, tarih: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">
+              Miktar {hesap ? `(${hesap.doviz})` : ''}
+            </label>
+            <input type="number" step="any" min="0" value={form.miktar}
+              onChange={e => setForm(f => ({ ...f, miktar: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          {isDoviz && (
+            <>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">İşlem TL (₺)</label>
+                <input type="number" step="0.01" min="0" value={form.islem_tl}
+                  onChange={e => setForm(f => ({ ...f, islem_tl: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Kur</label>
+                <input type="number" step="any" min="0" value={form.kur}
+                  onChange={e => setForm(f => ({ ...f, kur: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+            </>
+          )}
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
+            <input type="text" value={form.aciklama} onChange={e => setForm(f => ({ ...f, aciklama: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function IslemFormu({ onKapat, onKayit }) {
   const [seciliHesap, setSeciliHesap] = useState(HESAPLAR[0])
@@ -249,6 +333,7 @@ function IslemFormu({ onKapat, onKayit }) {
 
 export default function Birikim() {
   const [ekle, setEkle] = useState(false)
+  const [duzenle, setDuzenle] = useState(null)
   const [hareketler, setHareketler] = useState([])
   const [filtreTur, setFiltreTur] = useState('Tümü')
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -381,6 +466,9 @@ export default function Birikim() {
                     <p className="text-xs text-slate-400">₺{formatPara(Math.abs(r.islem_tl))}</p>
                   )}
                 </div>
+                <button onClick={() => setDuzenle(r)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 flex-shrink-0">
+                  <Pencil size={15} />
+                </button>
                 <button onClick={() => sil(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 flex-shrink-0">
                   <Trash2 size={15} />
                 </button>
@@ -394,6 +482,7 @@ export default function Birikim() {
       )}
 
       {ekle && <IslemFormu onKapat={() => setEkle(false)} onKayit={yukle} />}
+      {duzenle && <BirikimDuzenleFormu kayit={duzenle} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
     </div>
   )
 }
