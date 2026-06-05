@@ -19,6 +19,16 @@ export function donemLabel(donem) {
   return `${y}/${String(m).padStart(2, '0')}`
 }
 
+export function formatTarih(tarihStr) {
+  if (!tarihStr) return '—'
+  const d = new Date(tarihStr)
+  if (isNaN(d)) return String(tarihStr)
+  const gun = String(d.getDate()).padStart(2, '0')
+  const ay = String(d.getMonth() + 1).padStart(2, '0')
+  const yil = d.getFullYear()
+  return `${gun}.${ay}.${yil}`
+}
+
 export function formatPara(sayi) {
   return new Intl.NumberFormat('tr-TR', {
     minimumFractionDigits: 2,

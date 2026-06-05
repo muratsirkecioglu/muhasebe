@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara } from '../db'
+import { formatPara, formatTarih } from '../db'
 import { Plus, Trash2, Fuel, ParkingCircle, Waves } from 'lucide-react'
 
 const KATEGORILER = ['Yakıt', 'HGS', 'Otopark', 'Yıkama', 'Sigorta', 'MTV', 'Servis', 'Lastik', 'Diğer']
@@ -129,7 +129,7 @@ export default function AracMasraf() {
                   <span className="text-sm font-medium text-slate-800">{r.kategori.replace('Araç - ', '')}</span>
                   {r.aciklama && <span className="text-xs text-slate-400">{r.aciklama}</span>}
                 </div>
-                <p className="text-xs text-slate-400">{new Date(r.tarih).toLocaleDateString('tr-TR')}</p>
+                <p className="text-xs text-slate-400">{formatTarih(r.tarih)}</p>
               </div>
               <p className="text-sm font-bold text-orange-500">₺{formatPara(r.k)}</p>
               <button onClick={() => sil(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400"><Trash2 size={15} /></button>

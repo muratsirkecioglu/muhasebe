@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { buDonem, donemLabel, formatPara, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
+import { buDonem, donemLabel, formatPara, formatTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2 } from 'lucide-react'
 
 // 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
@@ -203,7 +203,7 @@ export default function Islemler() {
                   <span className="text-sm font-medium text-slate-800">{r.kategori}</span>
                   {r.aciklama && <span className="text-xs text-slate-400 truncate">{r.aciklama}</span>}
                 </div>
-                <p className="text-xs text-slate-400">{new Date(r.tarih).toLocaleDateString('tr-TR')}</p>
+                <p className="text-xs text-slate-400">{formatTarih(r.tarih)}</p>
               </div>
               <div className="text-right flex-shrink-0">
                 <p className={`text-sm font-bold ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>

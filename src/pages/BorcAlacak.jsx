@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara } from '../db'
+import { formatPara, formatTarih } from '../db'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil } from 'lucide-react'
 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
@@ -481,7 +481,7 @@ function EkstreFormu({ hesap, harcamalar, onKapat, onKayit }) {
                 <div>
                   <p className="text-sm font-medium text-slate-700">{h.aciklama || '—'}</p>
                   <p className="text-xs text-slate-400">
-                    {new Date(h.tarih).toLocaleDateString('tr-TR')} ·{' '}
+                    {formatTarih(h.tarih)} ·{' '}
                     {h.harcama_tipi === 'pesin' ? 'Tek Çekim' : `${h.taksit_sayisi} Taksit`}
                   </p>
                 </div>
@@ -823,7 +823,7 @@ export default function BorcAlacak() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">{h.aciklama || '—'}</p>
                       <p className="text-xs text-slate-400">
-                        {new Date(h.tarih).toLocaleDateString('tr-TR')} ·{' '}
+                        {formatTarih(h.tarih)} ·{' '}
                         {h.harcama_tipi === 'pesin' ? 'Tek Çekim' : `${h.taksit_sayisi} Taksit`}
                       </p>
                     </div>
@@ -858,7 +858,7 @@ export default function BorcAlacak() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400">{new Date(r.tarih).toLocaleDateString('tr-TR')}</p>
+                    <p className="text-xs text-slate-400">{formatTarih(r.tarih)}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className={`text-sm font-bold ${r.tutar > 0 ? 'text-red-500' : 'text-green-600'}`}>

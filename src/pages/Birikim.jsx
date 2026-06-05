@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara } from '../db'
+import { formatPara, formatTarih } from '../db'
 import { Plus, Trash2, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -16,7 +16,7 @@ function exportExcel(hareketler) {
     if (kayitlar.length === 0) continue
 
     const rows = kayitlar.map(r => ({
-      'Tarih': new Date(r.tarih).toLocaleDateString('tr-TR'),
+      'Tarih': formatTarih(r.tarih),
       'Alt Tip': r.alt_tip || '',
       'Miktar': r.miktar || 0,
       'Döviz': hesap.doviz,
@@ -371,7 +371,7 @@ export default function Birikim() {
                     {r.alt_tip && <span className="text-xs text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">{r.alt_tip}</span>}
                     {r.aciklama && <span className="text-xs text-slate-400 truncate">{r.aciklama}</span>}
                   </div>
-                  <p className="text-xs text-slate-400 mt-0.5">{new Date(r.tarih).toLocaleDateString('tr-TR')}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{formatTarih(r.tarih)}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className={`text-sm font-bold ${r.miktar >= 0 ? 'text-green-600' : 'text-red-500'}`}>
