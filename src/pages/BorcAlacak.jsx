@@ -1134,11 +1134,16 @@ export default function BorcAlacak() {
                 {harcamalar.filter(h => !h.ekstre_kesildi).map(h => (
                   <div key={h.id} className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-700">{h.aciklama || '—'}</p>
-                      <p className="text-xs text-slate-400">
-                        {formatTarih(h.tarih)} ·{' '}
-                        {h.harcama_tipi === 'pesin' ? 'Tek Çekim' : `${h.taksit_sayisi} Taksit`}
-                      </p>
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        <span className="text-sm font-medium text-slate-700">{h.aciklama || '—'}</span>
+                        {h.kategori && (
+                          <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{h.kategori}</span>
+                        )}
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${h.harcama_tipi === 'pesin' ? 'bg-blue-50 text-blue-500' : 'bg-purple-50 text-purple-500'}`}>
+                          {h.harcama_tipi === 'pesin' ? 'Tek Çekim' : `${h.taksit_sayisi} Taksit`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">{formatTarih(h.tarih)}</p>
                     </div>
                     <p className="text-sm font-bold text-orange-600 flex-shrink-0">₺{formatPara(h.tutar)}</p>
                     <button onClick={() => setDuzenleHarcama(h)}
