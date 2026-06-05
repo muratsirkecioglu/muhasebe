@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, PiggyBank, Users, Upload, Car, LogOut, BookOpen } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen } from 'lucide-react'
+import CoinIcon from './components/CoinIcon'
 import { AuthProvider, useAuth } from './AuthContext'
 import { supabase } from './supabase'
 import Dashboard from './pages/Dashboard'
@@ -15,7 +16,7 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/hesap', icon: BookOpen, label: 'Hesap' },
   { to: '/islemler', icon: ArrowLeftRight, label: 'İşlemler' },
-  { to: '/birikim', icon: PiggyBank, label: 'Birikim' },
+  { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
   { to: '/arac', icon: Car, label: 'Araç' },
   { to: '/import', icon: Upload, label: 'Import' },

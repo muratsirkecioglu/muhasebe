@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { formatPara } from '../db'
-import { Landmark, Banknote, ArrowLeftRight, PiggyBank, Settings } from 'lucide-react'
+import { Landmark, Banknote, ArrowLeftRight, Settings } from 'lucide-react'
+import CoinIcon from '../components/CoinIcon'
 
 function TransferFormu({ onKapat, onKayit }) {
   const [yon, setYon] = useState('cek')
@@ -227,7 +228,7 @@ export default function Dashboard() {
       {/* Döviz Varlıkları */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <PiggyBank size={15} className="text-slate-400" />
+          <CoinIcon size={15} className="text-slate-400" />
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Döviz & Fiziki Varlıklar</h2>
         </div>
         {[
