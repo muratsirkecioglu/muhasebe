@@ -311,7 +311,6 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
   const bugun = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState({
     tarih: bugun,
-    ilk_taksit_tarihi: bugun,
     tutar: '',
     aciklama: '',
     harcama_tipi: 'pesin',
@@ -327,18 +326,23 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     setTaksitler(taksitDagit(form.tutar, form.taksit_sayisi))
   }, [form.tutar, form.taksit_sayisi, form.harcama_tipi])
 
-  // İlk taksit tarihi veya sayısı değişince ödendi durumunu otomatik hesapla
+  // Taksit sayısı veya tarih değişince ödendi durumunu hesapla
   useEffect(() => {
     if (form.harcama_tipi !== 'taksitli') return
     const n = parseInt(form.taksit_sayisi) || 2
-    const bugunDate = new Date(); bugunDate.setHours(0, 0, 0, 0)
-    const baslangic = new Date(form.ilk_taksit_tarihi || bugun)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const baslangic = new Date(form.tarih || bugun)
+    const ekstreGun = hesap?.ekstre_gun
+
     setOdendi(Array.from({ length: n }, (_, i) => {
-      const t = new Date(baslangic)
-      t.setMonth(t.getMonth() + i)
-      return t < bugunDate
+      const taksitAy = new Date(baslangic.getFullYear(), baslangic.getMonth() + i, 1)
+      // Ekstre kesilme tarihi: o ayın ekstre_gun'u (yoksa ayın son günü)
+      const ekstreTarihi = ekstreGun
+        ? new Date(taksitAy.getFullYear(), taksitAy.getMonth(), ekstreGun)
+        : new Date(taksitAy.getFullYear(), taksitAy.getMonth() + 1, 0)
+      return ekstreTarihi < today
     }))
-  }, [form.taksit_sayisi, form.ilk_taksit_tarihi, form.harcama_tipi])
+  }, [form.taksit_sayisi, form.tarih, form.harcama_tipi, hesap?.ekstre_gun])
 
   const taksitGuncelle = (idx, deger) => {
     setTaksitler(t => { const y = [...t]; y[idx] = deger; return y })
@@ -354,14 +358,14 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     if (form.harcama_tipi === 'taksitli') {
       // Taksitli: doğrudan borc_kalemler'e aylık kayıt oluştur
       const grupId = crypto.randomUUID()
-      const baslangic = new Date(form.ilk_taksit_tarihi)
+      const baslangic = new Date(form.tarih)
+      const ekstreGun = hesap?.ekstre_gun
       const kalemler = taksitler.map((miktar, i) => {
-        const t = new Date(baslangic)
-        t.setMonth(t.getMonth() + i)
-        const donem = t.getFullYear() * 100 + t.getMonth() + 1
+        const taksitAy = new Date(baslangic.getFullYear(), baslangic.getMonth() + i, ekstreGun || 1)
+        const donem = taksitAy.getFullYear() * 100 + taksitAy.getMonth() + 1
         return {
           hesap_id: hesap.id,
-          tarih: t.toISOString().split('T')[0],
+          tarih: taksitAy.toISOString().split('T')[0],
           donem,
           tutar: parseFloat(miktar) || 0,
           aciklama: `${form.aciklama || hesap.ad} (${i + 1}/${taksitler.length})`,
@@ -435,13 +439,6 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-slate-500 block mb-1">1. Taksit Tarihi</label>
-                <TarihInput value={form.ilk_taksit_tarihi} onChange={v => setForm(f => ({ ...f, ilk_taksit_tarihi: v }))}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
-                <p className="text-xs text-slate-400 mt-1">Sonraki taksitler aylık otomatik ilerler</p>
-              </div>
-
               {taksitler.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -452,8 +449,8 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
                   </div>
                   <div className="space-y-1.5">
                     {taksitler.map((miktar, i) => {
-                      const t = new Date(form.ilk_taksit_tarihi || bugun)
-                      t.setMonth(t.getMonth() + i)
+                      const base = new Date(form.tarih || bugun)
+                      const t = new Date(base.getFullYear(), base.getMonth() + i, 1)
                       const ay = t.toLocaleDateString('tr-TR', { month: 'short', year: '2-digit' })
                       const isOdendi = odendi[i] || false
                       return (
