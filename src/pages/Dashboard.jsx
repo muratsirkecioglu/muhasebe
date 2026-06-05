@@ -219,16 +219,6 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-        {/* Birikim (TL) kartı */}
-        <div className="mt-3 bg-blue-50 border border-blue-100 rounded-2xl p-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <CoinIcon size={16} className="text-blue-600" />
-            <span className="text-sm font-medium text-blue-700">Birikim (TL)</span>
-          </div>
-          <span className={`text-lg font-bold ${(birikimOzet['Birikim (TL)'] || 0) >= 0 ? 'text-blue-700' : 'text-red-500'}`}>
-            ₺{formatPara(birikimOzet['Birikim (TL)'] || 0)}
-          </span>
-        </div>
         <div className="mt-2 bg-slate-800 rounded-xl px-4 py-3 flex justify-between items-center">
           <span className="text-sm text-slate-300">Toplam TL Varlık</span>
           <span className="text-lg font-bold text-white">₺{formatPara(bakiye.TL)}</span>
@@ -254,6 +244,11 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {/* Birikim (TL) — ilk kart */}
+            <div className="rounded-2xl p-4 border bg-blue-50 border-blue-100 text-blue-800">
+              <p className="text-xs font-semibold opacity-60 mb-1">💰 Birikim (TL)</p>
+              <p className="text-xl font-bold">₺{formatPara(birikimOzet['Birikim (TL)'] || 0)}</p>
+            </div>
             {[
               { tur: 'ALT(F)', birim: 'ALT', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
               { tur: 'ALT(H)', birim: 'ALT', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
