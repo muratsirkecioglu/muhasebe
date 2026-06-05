@@ -308,8 +308,10 @@ function taksitDagit(tutar, sayi) {
 }
 
 function HarcamaFormu({ hesap, onKapat, onKayit }) {
+  const bugun = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState({
-    tarih: new Date().toISOString().split('T')[0],
+    tarih: bugun,
+    ilk_taksit_tarihi: bugun,
     tutar: '',
     aciklama: '',
     harcama_tipi: 'pesin',
@@ -331,19 +333,41 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
-    const n = parseInt(form.taksit_sayisi) || 2
-    await supabase.from('borc_harcamalar').insert({
-      hesap_id: hesap.id,
-      tarih: form.tarih,
-      tutar: parseFloat(form.tutar) || 0,
-      aciklama: form.aciklama || null,
-      harcama_tipi: form.harcama_tipi,
-      taksit_sayisi: form.harcama_tipi === 'taksitli' ? n : 1,
-      taksit_miktarlari: form.harcama_tipi === 'taksitli'
-        ? taksitler.map(v => parseFloat(v) || 0)
-        : null,
-      ekstre_kesildi: false,
-    })
+
+    if (form.harcama_tipi === 'taksitli') {
+      // Taksitli: doğrudan borc_kalemler'e aylık kayıt oluştur
+      const grupId = crypto.randomUUID()
+      const baslangic = new Date(form.ilk_taksit_tarihi)
+      const kalemler = taksitler.map((miktar, i) => {
+        const t = new Date(baslangic)
+        t.setMonth(t.getMonth() + i)
+        const donem = t.getFullYear() * 100 + t.getMonth() + 1
+        return {
+          hesap_id: hesap.id,
+          tarih: t.toISOString().split('T')[0],
+          donem,
+          tutar: parseFloat(miktar) || 0,
+          aciklama: `${form.aciklama || hesap.ad} (${i + 1}/${taksitler.length})`,
+          tur: 'taksit',
+          taksit_no: i + 1,
+          taksit_toplam: taksitler.length,
+          grup_id: grupId,
+        }
+      })
+      await supabase.from('borc_kalemler').insert(kalemler)
+    } else {
+      // Peşin: bekleyen listesine ekle, ekstre kesilince işlenir
+      await supabase.from('borc_harcamalar').insert({
+        hesap_id: hesap.id,
+        tarih: form.tarih,
+        tutar: parseFloat(form.tutar) || 0,
+        aciklama: form.aciklama || null,
+        harcama_tipi: 'pesin',
+        taksit_sayisi: 1,
+        ekstre_kesildi: false,
+      })
+    }
+
     onKayit(); onKapat()
   }
 
@@ -370,11 +394,13 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
               ))}
             </div>
           </div>
+
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Tarihi</label>
             <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
+
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Toplam Tutar (₺)</label>
             <input type="number" step="0.01" min="0" value={form.tutar}
@@ -391,6 +417,13 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
               </div>
 
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">1. Taksit Tarihi</label>
+                <TarihInput value={form.ilk_taksit_tarihi} onChange={v => setForm(f => ({ ...f, ilk_taksit_tarihi: v }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+                <p className="text-xs text-slate-400 mt-1">Sonraki taksitler aylık otomatik ilerler</p>
+              </div>
+
               {taksitler.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -400,20 +433,22 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    {taksitler.map((miktar, i) => (
-                      <div key={i} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                        <span className="text-xs text-slate-400 w-6 flex-shrink-0">{i + 1}.</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={miktar}
-                          onChange={e => taksitGuncelle(i, e.target.value)}
-                          className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-right"
-                        />
-                        <span className="text-xs text-slate-400">₺</span>
-                      </div>
-                    ))}
+                    {taksitler.map((miktar, i) => {
+                      const t = new Date(form.ilk_taksit_tarihi || bugun)
+                      t.setMonth(t.getMonth() + i)
+                      const ay = t.toLocaleDateString('tr-TR', { month: 'short', year: '2-digit' })
+                      return (
+                        <div key={i} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                          <span className="text-xs text-slate-400 w-10 flex-shrink-0 leading-tight">{i + 1}.<br/><span className="text-slate-300">{ay}</span></span>
+                          <input
+                            type="number" step="0.01" min="0" value={miktar}
+                            onChange={e => taksitGuncelle(i, e.target.value)}
+                            className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none text-right"
+                          />
+                          <span className="text-xs text-slate-400">₺</span>
+                        </div>
+                      )
+                    })}
                   </div>
                   {!tutarEslesti && hedefTutar > 0 && (
                     <p className="text-xs text-red-500 mt-1.5 text-center">
