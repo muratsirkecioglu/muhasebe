@@ -298,6 +298,94 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
 }
 
 // --- KK: Harcama Ekleme Formu ---
+// --- KK: Bekleyen Harcama Düzenleme ---
+function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
+  const [form, setForm] = useState({
+    tarih: harcama.tarih ? String(harcama.tarih).split('T')[0] : '',
+    tutar: String(harcama.tutar || ''),
+    kategori: harcama.kategori || GIDER_KATEGORILER[0],
+    aciklama: harcama.aciklama || '',
+    harcama_tipi: harcama.harcama_tipi || 'pesin',
+    taksit_sayisi: String(harcama.taksit_sayisi || 2),
+  })
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    await supabase.from('borc_harcamalar').update({
+      tarih: form.tarih,
+      tutar: parseFloat(form.tutar) || 0,
+      kategori: form.kategori || null,
+      aciklama: form.aciklama || null,
+      harcama_tipi: form.harcama_tipi,
+      taksit_sayisi: form.harcama_tipi === 'taksitli' ? parseInt(form.taksit_sayisi) || 2 : 1,
+    }).eq('id', harcama.id)
+    onKayit(); onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">✏️ Harcamayı Düzenle</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Ekstre kesilmemiş harcama</p>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Tipi</label>
+            <div className="flex gap-2">
+              {[['pesin', '💵 Peşin / Tek Çekim'], ['taksitli', '📅 Taksitli']].map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setForm(f => ({ ...f, harcama_tipi: val }))}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                    form.harcama_tipi === val ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
+                  }`}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
+            <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
+            <input type="number" step="0.01" min="0" value={form.tutar}
+              onChange={e => setForm(f => ({ ...f, tutar: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Kategori</label>
+            <select value={form.kategori} onChange={e => setForm(f => ({ ...f, kategori: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+              {GIDER_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </div>
+          {form.harcama_tipi === 'taksitli' && (
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
+              <input type="number" min="2" max="60" value={form.taksit_sayisi}
+                onChange={e => setForm(f => ({ ...f, taksit_sayisi: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
+            <input type="text" value={form.aciklama} onChange={e => setForm(f => ({ ...f, aciklama: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function taksitDagit(tutar, sayi) {
   const n = parseInt(sayi) || 2
   const t = parseFloat(tutar) || 0
@@ -674,7 +762,8 @@ export default function BorcAlacak() {
   const [hareketler, setHareketler] = useState([])
   const [harcamalar, setHarcamalar] = useState([])
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
-  const [duzenleKalem, setDuzenleKalem] = useState(null) // kalem objesi
+  const [duzenleKalem, setDuzenleKalem] = useState(null)
+  const [duzenleHarcama, setDuzenleHarcama] = useState(null)
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukleHesaplar = useCallback(async () => {
@@ -1043,6 +1132,10 @@ export default function BorcAlacak() {
                       </p>
                     </div>
                     <p className="text-sm font-bold text-orange-600 flex-shrink-0">₺{formatPara(h.tutar)}</p>
+                    <button onClick={() => setDuzenleHarcama(h)}
+                      className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors flex-shrink-0">
+                      <Pencil size={14} />
+                    </button>
                     <button onClick={() => silHarcama(h.id)}
                       className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors flex-shrink-0">
                       <Trash2 size={14} />
@@ -1115,6 +1208,11 @@ export default function BorcAlacak() {
       {form === 'hesap' && <HesapFormu onKapat={() => setForm(null)} onKayit={yenile} />}
       {form === 'duzenle-hesap' && seciliHesap && (
         <HesapDuzenleFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={() => { setForm(null); yukleHesaplar(); yukleDetay(seciliHesap.id) }} />
+      )}
+      {duzenleHarcama && (
+        <HarcamaDuzenleFormu harcama={duzenleHarcama}
+          onKapat={() => setDuzenleHarcama(null)}
+          onKayit={() => { setDuzenleHarcama(null); yukleDetay(seciliHesap.id) }} />
       )}
       {duzenleKalem && seciliHesap && (
         <KalemDuzenleFormu kalem={duzenleKalem} doviz_cinsi={seciliHesap.doviz_cinsi}
