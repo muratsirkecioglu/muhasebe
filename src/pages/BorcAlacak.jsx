@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, formatTarih, GIDER_KATEGORILER } from '../db'
 import TarihInput from '../components/TarihInput'
-import { Plus, Trash2, CreditCard, User, Scissors, Pencil } from 'lucide-react'
+import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X } from 'lucide-react'
 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr' }
@@ -693,21 +693,9 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[92vh]">
         <div className="p-5 border-b border-slate-100 flex-shrink-0">
-          <h3 className="font-semibold text-slate-800">💳 Harcama Ekle — {hesap.ad}</h3>
+          <h3 className="font-semibold text-slate-800">📅 Taksitli Harcama — {hesap.ad}</h3>
         </div>
         <form onSubmit={kaydet} className="flex-1 overflow-y-auto p-5 space-y-4">
-          <div>
-            <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Tipi</label>
-            <div className="flex gap-2">
-              {[['pesin', '💵 Peşin / Tek Çekim'], ['taksitli', '📅 Taksitli']].map(([val, label]) => (
-                <button key={val} type="button" onClick={() => setForm(f => ({ ...f, harcama_tipi: val }))}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                    form.harcama_tipi === val ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
-                  }`}>{label}</button>
-              ))}
-            </div>
-          </div>
-
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Harcama Tarihi</label>
             <TarihInput value={form.tarih} onChange={v => setForm(f => ({ ...f, tarih: v }))}
@@ -936,6 +924,7 @@ export default function BorcAlacak() {
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
   const [duzenleKalem, setDuzenleKalem] = useState(null)
   const [duzenleHarcama, setDuzenleHarcama] = useState(null)
+  const [yeniSatir, setYeniSatir] = useState(null) // peşin satır inline ekleme
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukleHesaplar = useCallback(async () => {
@@ -1021,6 +1010,22 @@ export default function BorcAlacak() {
     if (!confirm('Silinsin mi?')) return
     await supabase.from('borc_harcamalar').delete().eq('id', id)
     yukleDetay(secili.id)
+  }
+
+  const kaydetPesin = async () => {
+    if (!yeniSatir || !yeniSatir.tutar) return
+    await supabase.from('borc_harcamalar').insert({
+      hesap_id: seciliHesap.id,
+      tarih: yeniSatir.tarih,
+      tutar: parseFloat(yeniSatir.tutar) || 0,
+      kategori: yeniSatir.kategori || null,
+      aciklama: yeniSatir.aciklama || null,
+      harcama_tipi: 'pesin',
+      taksit_sayisi: 1,
+      ekstre_kesildi: false,
+    })
+    setYeniSatir(null)
+    yukleDetay(seciliHesap.id)
   }
 
   // Hesabı kapat → geçmişe taşır (aktif=false)
@@ -1351,7 +1356,7 @@ export default function BorcAlacak() {
               <>
                 <button onClick={() => setForm('harcama')}
                   className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-medium flex items-center justify-center gap-1.5">
-                  <Plus size={14} /> Harcama Ekle
+                  <Plus size={14} /> Taksitli Harcama
                 </button>
                 <button onClick={() => setForm('ekstre')}
                   className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-medium flex items-center justify-center gap-1.5">
@@ -1366,34 +1371,65 @@ export default function BorcAlacak() {
             )}
           </div>
 
-          {/* KK - Bekleyen Harcamalar Listesi */}
-          {seciliHesap.tip === 'kk' && harcamalar.filter(h => !h.ekstre_kesildi).length > 0 && (
+          {/* KK - Tek Çekim Bekleyen Harcamalar Tablosu */}
+          {seciliHesap.tip === 'kk' && (
             <div className="mb-5">
-              <p className="text-xs font-semibold text-orange-600 mb-2 px-1">⏳ Ekstre Kesilmemiş Harcamalar</p>
-              <div className="space-y-2">
-                {harcamalar.filter(h => !h.ekstre_kesildi).map(h => (
-                  <div key={h.id} className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-sm font-semibold text-slate-700">{h.kategori || '—'}</span>
-                        {h.harcama_tipi === 'taksitli' && (
-                          <span className="text-xs bg-purple-50 text-purple-500 px-1.5 py-0.5 rounded-full flex-shrink-0">{h.taksit_sayisi} Taksit</span>
-                        )}
-                      </div>
-                      {h.aciklama && <p className="text-xs text-slate-500 truncate">{h.aciklama}</p>}
-                      <p className="text-xs text-slate-400">{formatTarih(h.tarih)}</p>
+              <div className="flex items-center justify-between mb-1 px-0.5">
+                <p className="text-xs font-semibold text-orange-600">⏳ Tek Çekim Harcamalar</p>
+                <button onClick={() => setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: new Date().toISOString().split('T')[0], tutar: '' })}
+                  className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center justify-center transition-colors">
+                  <Plus size={13} />
+                </button>
+              </div>
+              <div className="border border-orange-100 rounded-xl overflow-hidden">
+                {/* Başlık */}
+                <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] bg-orange-50 border-b border-orange-100 text-xs font-semibold text-orange-700 px-2 py-1.5 gap-1">
+                  <span>Kategori</span>
+                  <span>Açıklama</span>
+                  <span className="w-20 text-center">Tarih</span>
+                  <span className="w-16 text-right">Tutar</span>
+                  <span className="w-12"></span>
+                </div>
+
+                {/* Yeni satır */}
+                {yeniSatir && (
+                  <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] border-b border-orange-100 bg-amber-50 px-2 py-1 gap-1 items-center">
+                    <select value={yeniSatir.kategori} onChange={e => setYeniSatir(s => ({ ...s, kategori: e.target.value }))}
+                      className="text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none w-full">
+                      {GIDER_KATEGORILER.map(k => <option key={k}>{k}</option>)}
+                    </select>
+                    <input type="text" value={yeniSatir.aciklama} onChange={e => setYeniSatir(s => ({ ...s, aciklama: e.target.value }))}
+                      placeholder="Açıklama"
+                      className="text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none w-full" />
+                    <TarihInput value={yeniSatir.tarih} onChange={v => setYeniSatir(s => ({ ...s, tarih: v }))}
+                      className="w-20 text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none" />
+                    <input type="number" step="0.01" min="0" value={yeniSatir.tutar} onChange={e => setYeniSatir(s => ({ ...s, tutar: e.target.value }))}
+                      placeholder="0"
+                      className="w-16 text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none text-right" />
+                    <div className="w-12 flex gap-1 justify-end">
+                      <button onClick={kaydetPesin} className="p-1 rounded text-green-600 hover:bg-green-100"><Check size={13} /></button>
+                      <button onClick={() => setYeniSatir(null)} className="p-1 rounded text-slate-400 hover:bg-slate-100"><X size={13} /></button>
                     </div>
-                    <p className="text-sm font-bold text-orange-600 flex-shrink-0">₺{formatPara(h.tutar)}</p>
-                    <button onClick={() => setDuzenleHarcama(h)}
-                      className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors flex-shrink-0">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => silHarcama(h.id)}
-                      className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors flex-shrink-0">
-                      <Trash2 size={14} />
-                    </button>
                   </div>
-                ))}
+                )}
+
+                {/* Mevcut peşin harcamalar */}
+                {harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin').length === 0 && !yeniSatir ? (
+                  <div className="text-center py-3 text-xs text-slate-400">Kayıt yok</div>
+                ) : (
+                  harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin').map(h => (
+                    <div key={h.id} className="grid grid-cols-[1fr_1fr_auto_auto_auto] border-b border-orange-50 last:border-0 px-2 py-1.5 gap-1 items-center hover:bg-orange-50 transition-colors">
+                      <span className="text-xs text-slate-700 truncate">{h.kategori || '—'}</span>
+                      <span className="text-xs text-slate-500 truncate">{h.aciklama || '—'}</span>
+                      <span className="w-20 text-xs text-slate-500 text-center">{formatTarih(h.tarih)}</span>
+                      <span className="w-16 text-xs font-semibold text-orange-600 text-right">₺{formatPara(h.tutar)}</span>
+                      <div className="w-12 flex gap-0.5 justify-end">
+                        <button onClick={() => setDuzenleHarcama(h)} className="p-1 rounded hover:bg-blue-100 text-slate-300 hover:text-blue-500"><Pencil size={12} /></button>
+                        <button onClick={() => silHarcama(h.id)} className="p-1 rounded hover:bg-red-100 text-slate-300 hover:text-red-500"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
