@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara } from '../db'
-import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, TrendingUp, TrendingDown, BarChart2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, TrendingUp, TrendingDown, BarChart2, CreditCard, CalendarDays } from 'lucide-react'
 
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£' }
 const PERIYOT_LABEL = { aylik: '/ay', yillik: '/yıl', uc_aylik: '/3ay', haftalik: '/hf' }
@@ -271,18 +271,43 @@ function KalemTablosu({ liste, tip, seciliId, setSeciliId, onDuzenle, onSil, onT
 // ─── Ana Sayfa ────────────────────────────────────────────────────────────────
 export default function Projeksiyon() {
   const [kalemler, setKalemler] = useState([])
+  const [kkOzet, setKkOzet] = useState({ ekstre: {}, taksit: {} })
   const [formKalem, setFormKalem] = useState(null)   // null = kapalı
   const [seciliId, setSeciliId] = useState(null)
   const [yukleniyor, setYukleniyor] = useState(true)
 
+  const buAy = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
+  const buAyLabel = new Date().toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+
   const yukle = useCallback(async () => {
     setYukleniyor(true)
-    const { data } = await supabase
-      .from('sabit_kalemler')
-      .select('*')
-      .order('sira', { nullsFirst: false })
-      .order('created_at')
-    setKalemler(data || [])
+    const buAyVal = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
+
+    const [sabitRes, hesaplarRes, kalemlerRes] = await Promise.all([
+      supabase.from('sabit_kalemler').select('*').order('sira', { nullsFirst: false }).order('created_at'),
+      supabase.from('borc_hesaplar').select('id, doviz_cinsi').eq('aktif', true),
+      supabase.from('borc_kalemler')
+        .select('hesap_id, tutar, tur, odendi, donem')
+        .eq('donem', buAyVal)
+        .eq('odendi', false)
+        .in('tur', ['ekstre', 'taksit']),
+    ])
+
+    setKalemler(sabitRes.data || [])
+
+    // Bu ayın KK ekstre + taksit tutarlarını dövize göre grupla
+    const hesapMap = {}
+    for (const h of hesaplarRes.data || []) hesapMap[h.id] = h
+
+    const ekstre = {}, taksit = {}
+    for (const k of kalemlerRes.data || []) {
+      const doviz = hesapMap[k.hesap_id]?.doviz_cinsi || 'TL'
+      const tutar = k.tutar || 0
+      if (k.tur === 'ekstre') ekstre[doviz] = (ekstre[doviz] || 0) + tutar
+      else if (k.tur === 'taksit') taksit[doviz] = (taksit[doviz] || 0) + tutar
+    }
+    setKkOzet({ ekstre, taksit })
+
     setYukleniyor(false)
   }, [])
 
@@ -400,6 +425,64 @@ export default function Projeksiyon() {
           })}
         </div>
       )}
+
+      {/* Bu Ayın KK Yükümlülükleri */}
+      {(Object.keys(kkOzet.ekstre).length > 0 || Object.keys(kkOzet.taksit).length > 0) && (() => {
+        const dovizler = [...new Set([...Object.keys(kkOzet.ekstre), ...Object.keys(kkOzet.taksit)])]
+        return (
+          <div className="bg-white rounded-2xl border border-purple-100 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 bg-purple-50 border-b border-purple-100">
+              <CalendarDays size={13} className="text-purple-400" />
+              <h3 className="text-xs font-bold text-purple-600 uppercase tracking-wide">
+                Bu Ay KK Yükümlülükleri
+              </h3>
+              <span className="ml-auto text-[10px] text-purple-400 font-medium capitalize">{buAyLabel}</span>
+            </div>
+
+            {/* Ekstre satırları */}
+            {Object.entries(kkOzet.ekstre).map(([doviz, tutar]) => (
+              <div key={`e-${doviz}`} className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
+                <span className="flex items-center gap-2 text-sm text-slate-600">
+                  <CreditCard size={13} className="text-purple-400" />
+                  Ekstre
+                  {Object.keys(kkOzet.ekstre).length > 1 && <span className="text-xs text-slate-400">({doviz})</span>}
+                </span>
+                <span className="text-sm font-bold text-purple-600">
+                  {SEMBOL[doviz] || doviz}{formatPara(tutar)}
+                </span>
+              </div>
+            ))}
+
+            {/* Taksit satırları */}
+            {Object.entries(kkOzet.taksit).map(([doviz, tutar]) => (
+              <div key={`t-${doviz}`} className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
+                <span className="flex items-center gap-2 text-sm text-slate-600">
+                  <span className="text-base leading-none">📅</span>
+                  Taksitler
+                  {Object.keys(kkOzet.taksit).length > 1 && <span className="text-xs text-slate-400">({doviz})</span>}
+                </span>
+                <span className="text-sm font-bold text-orange-500">
+                  {SEMBOL[doviz] || doviz}{formatPara(tutar)}
+                </span>
+              </div>
+            ))}
+
+            {/* Toplam (döviz başına) */}
+            {dovizler.map(doviz => {
+              const total = (kkOzet.ekstre[doviz] || 0) + (kkOzet.taksit[doviz] || 0)
+              const sem = SEMBOL[doviz] || doviz
+              return (
+                <div key={`tot-${doviz}`} className="flex items-center justify-between px-4 py-3 bg-slate-50">
+                  <span className="text-sm font-semibold text-slate-600">
+                    Toplam{dovizler.length > 1 ? ` (${doviz})` : ''}
+                  </span>
+                  <span className="text-base font-bold text-slate-800">{sem}{formatPara(total)}</span>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
 
       {/* Tablolar */}
       <KalemTablosu
