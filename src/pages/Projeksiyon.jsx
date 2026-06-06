@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara } from '../db'
+import { useMask } from '../MaskContext'
 import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, TrendingUp, TrendingDown, BarChart2, CreditCard, CalendarDays } from 'lucide-react'
 
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£' }
@@ -142,6 +143,8 @@ function KalemTablosu({ liste, tip, seciliId, setSeciliId, onDuzenle, onSil, onT
   const isGelir = tip === 'gelir'
   const seciliIdx = liste.findIndex(k => k.id === seciliId)
   const secililideMi = liste.some(k => k.id === seciliId)
+  const { maskeli } = useMask()
+  const para = (v) => maskeli ? '••••' : formatPara(v)
 
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -206,13 +209,13 @@ function KalemTablosu({ liste, tip, seciliId, setSeciliId, onDuzenle, onSil, onT
                   {/* Tutar */}
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
                     <span className={`font-bold ${isGelir ? 'text-green-600' : 'text-red-500'} ${!k.aktif ? 'opacity-40' : ''}`}>
-                      {sem}{formatPara(k.tutar)}
+                      {sem}{para(k.tutar)}
                     </span>
                     <span className={`ml-0.5 ${!k.aktif ? 'text-slate-300' : 'text-slate-400'}`}>
                       {PERIYOT_LABEL[k.periyot] || ''}
                     </span>
                     {k.periyot !== 'aylik' && k.aktif && (
-                      <div className="text-slate-400 text-[10px]">≈{sem}{formatPara(aylik)}/ay</div>
+                      <div className="text-slate-400 text-[10px]">≈{sem}{para(aylik)}/ay</div>
                     )}
                   </td>
 
@@ -255,7 +258,7 @@ function KalemTablosu({ liste, tip, seciliId, setSeciliId, onDuzenle, onSil, onT
                     map[k.doviz_cinsi] += aylikEsde(k)
                   })
                   return Object.entries(map).map(([d, total]) => (
-                    <div key={d}>{SEMBOL[d] || d}{formatPara(total)}/ay</div>
+                    <div key={d}>{SEMBOL[d] || d}{para(total)}/ay</div>
                   ))
                 })()}
               </td>
@@ -270,6 +273,9 @@ function KalemTablosu({ liste, tip, seciliId, setSeciliId, onDuzenle, onSil, onT
 
 // ─── Ana Sayfa ────────────────────────────────────────────────────────────────
 export default function Projeksiyon() {
+  const { maskeli } = useMask()
+  const para = (v) => maskeli ? '••••' : formatPara(v)
+
   const [kalemler, setKalemler] = useState([])
   const [kkOzet, setKkOzet] = useState({ ekstre: {}, taksit: {} })
   const [formKalem, setFormKalem] = useState(null)   // null = kapalı
@@ -397,19 +403,19 @@ export default function Projeksiyon() {
                       <span className="flex items-center gap-1">
                         <TrendingUp size={11} className="text-green-500" />
                         <span className="text-slate-500">Gelir:</span>
-                        <strong className="text-green-600">{sem}{formatPara(gelir)}</strong>
+                        <strong className="text-green-600">{sem}{para(gelir)}</strong>
                       </span>
                       <span className="flex items-center gap-1">
                         <TrendingDown size={11} className="text-red-400" />
                         <span className="text-slate-500">Gider:</span>
-                        <strong className="text-red-500">{sem}{formatPara(gider)}</strong>
+                        <strong className="text-red-500">{sem}{para(gider)}</strong>
                       </span>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] text-slate-400 mb-0.5">{pozitif ? 'Aylık Fazla' : 'Aylık Açık'}</p>
                     <p className={`text-2xl font-bold leading-tight ${pozitif ? 'text-green-600' : 'text-red-500'}`}>
-                      {pozitif ? '+' : '-'}{sem}{formatPara(Math.abs(net))}
+                      {pozitif ? '+' : '-'}{sem}{para(Math.abs(net))}
                     </p>
                   </div>
                 </div>
@@ -417,8 +423,8 @@ export default function Projeksiyon() {
                   pozitif ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                 }`}>
                   {pozitif
-                    ? `✅ Gelecek ay ${sem}${formatPara(net)} fazlada olacaksınız`
-                    : `⚠️ Gelecek ay ${sem}${formatPara(Math.abs(net))} açıkta olacaksınız`}
+                    ? `✅ Gelecek ay ${sem}${para(net)} fazlada olacaksınız`
+                    : `⚠️ Gelecek ay ${sem}${para(Math.abs(net))} açıkta olacaksınız`}
                 </div>
               </div>
             )
@@ -448,7 +454,7 @@ export default function Projeksiyon() {
                   {Object.keys(kkOzet.ekstre).length > 1 && <span className="text-xs text-slate-400">({doviz})</span>}
                 </span>
                 <span className="text-sm font-bold text-purple-600">
-                  {SEMBOL[doviz] || doviz}{formatPara(tutar)}
+                  {SEMBOL[doviz] || doviz}{para(tutar)}
                 </span>
               </div>
             ))}
@@ -462,7 +468,7 @@ export default function Projeksiyon() {
                   {Object.keys(kkOzet.taksit).length > 1 && <span className="text-xs text-slate-400">({doviz})</span>}
                 </span>
                 <span className="text-sm font-bold text-orange-500">
-                  {SEMBOL[doviz] || doviz}{formatPara(tutar)}
+                  {SEMBOL[doviz] || doviz}{para(tutar)}
                 </span>
               </div>
             ))}
@@ -476,7 +482,7 @@ export default function Projeksiyon() {
                   <span className="text-sm font-semibold text-slate-600">
                     Toplam{dovizler.length > 1 ? ` (${doviz})` : ''}
                   </span>
-                  <span className="text-base font-bold text-slate-800">{sem}{formatPara(total)}</span>
+                  <span className="text-base font-bold text-slate-800">{sem}{para(total)}</span>
                 </div>
               )
             })}
