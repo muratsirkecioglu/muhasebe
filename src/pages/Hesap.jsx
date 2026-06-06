@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, donemLabel } from '../db'
+import { formatPara, donemLabel, buDonem } from '../db'
 import { useMask } from '../MaskContext'
 
 const BASLANGIC_DONEM = 201604
@@ -93,7 +93,8 @@ export default function Hesap() {
   const gizle = (deger) => maskeli ? '••••' : (deger !== 0 ? formatPara(deger) : '—')
   const [satirlar, setSatirlar] = useState([])
   const [yukleniyor, setYukleniyor] = useState(true)
-  const [filtre, setFiltre] = useState('son12') // 'son12' | 'tamami'
+  const [filtre, setFiltre] = useState('son6') // 'son6' | 'son12' | 'tamami'
+  const mevcutDonem = buDonem()
 
   useEffect(() => {
     aylikVerileriHesapla().then(data => {
@@ -102,9 +103,12 @@ export default function Hesap() {
     })
   }, [])
 
-  const gosterilen = filtre === 'son12'
-    ? satirlar.slice(-12)
-    : satirlar
+  const gosterilen = (() => {
+    const liste = filtre === 'son6' ? satirlar.slice(-6)
+                : filtre === 'son12' ? satirlar.slice(-12)
+                : satirlar
+    return [...liste].reverse()
+  })()
 
   if (yukleniyor) return (
     <div className="flex items-center justify-center h-64">
@@ -117,7 +121,7 @@ export default function Hesap() {
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-semibold text-slate-700">Aylık Hesap Özeti</h2>
         <div className="flex gap-2">
-          {[['son12', 'Son 12 Ay'], ['tamami', 'Tümü']].map(([val, label]) => (
+          {[['son6', 'Son 6 Ay'], ['son12', 'Son 12 Ay'], ['tamami', 'Tümü']].map(([val, label]) => (
             <button key={val} onClick={() => setFiltre(val)}
               className={`text-xs px-3 py-1.5 rounded-xl border transition-colors ${
                 filtre === val ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
@@ -145,23 +149,24 @@ export default function Hesap() {
           </thead>
           <tbody>
             {gosterilen.map((r, i) => (
-              <tr key={r.donem} className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${r.ilk ? 'bg-yellow-50' : ''}`}>
-                <td className="px-3 py-2 font-medium text-slate-700 sticky left-0 bg-white">
+              <tr key={r.donem} className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${r.ilk ? 'bg-yellow-50' : ''} ${r.donem === mevcutDonem ? 'bg-blue-50/40' : ''}`}>
+                <td className={`px-3 py-2 sticky left-0 ${r.donem === mevcutDonem ? 'font-bold text-blue-700 bg-blue-50/40' : 'font-medium text-slate-700 bg-white'}`}>
                   {donemLabel(r.donem)}
                   {r.ilk && <span className="ml-1 text-yellow-600 text-[10px]">başlangıç</span>}
+                  {r.donem === mevcutDonem && <span className="ml-1 text-blue-400 text-[10px]">●</span>}
                 </td>
-                <td className={`px-3 py-2 text-right font-bold bg-blue-50 ${r.bakiyeK >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                <td className={`px-3 py-2 text-right bg-blue-50 ${r.bakiyeK >= 0 ? 'text-blue-700' : 'text-red-600'} ${r.donem === mevcutDonem ? 'font-extrabold' : 'font-bold'}`}>
                   {formatPara(r.bakiyeK)}
                 </td>
-                <td className={`px-3 py-2 text-right font-bold bg-slate-50 ${r.bakiyeN >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
+                <td className={`px-3 py-2 text-right bg-slate-50 ${r.bakiyeN >= 0 ? 'text-slate-700' : 'text-red-600'} ${r.donem === mevcutDonem ? 'font-extrabold' : 'font-bold'}`}>
                   {formatPara(r.bakiyeN)}
                 </td>
-                <td className="px-3 py-2 text-right text-green-600">{gizle(r.gelirK)}</td>
-                <td className="px-3 py-2 text-right text-green-400">{r.gelirN !== 0 ? formatPara(r.gelirN) : '—'}</td>
-                <td className="px-3 py-2 text-right text-red-500">{r.giderK !== 0 ? formatPara(r.giderK) : '—'}</td>
-                <td className="px-3 py-2 text-right text-red-300">{r.giderN !== 0 ? formatPara(r.giderN) : '—'}</td>
-                <td className="px-3 py-2 text-right text-slate-400">{r.nkK !== 0 ? formatPara(r.nkK) : '—'}</td>
-                <td className="px-3 py-2 text-right text-slate-400">{r.nkN !== 0 ? formatPara(r.nkN) : '—'}</td>
+                <td className={`px-3 py-2 text-right text-green-600 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{gizle(r.gelirK)}</td>
+                <td className={`px-3 py-2 text-right text-green-400 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.gelirN !== 0 ? formatPara(r.gelirN) : '—'}</td>
+                <td className={`px-3 py-2 text-right text-red-500 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.giderK !== 0 ? formatPara(r.giderK) : '—'}</td>
+                <td className={`px-3 py-2 text-right text-red-300 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.giderN !== 0 ? formatPara(r.giderN) : '—'}</td>
+                <td className={`px-3 py-2 text-right text-slate-400 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.nkK !== 0 ? formatPara(r.nkK) : '—'}</td>
+                <td className={`px-3 py-2 text-right text-slate-400 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.nkN !== 0 ? formatPara(r.nkN) : '—'}</td>
               </tr>
             ))}
           </tbody>
