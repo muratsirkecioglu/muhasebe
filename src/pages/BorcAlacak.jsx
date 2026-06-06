@@ -1013,11 +1013,40 @@ export default function BorcAlacak() {
     yukleDetay(secili.id)
   }
 
+  const pesinSirali = harcamalar
+    .filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
+    .sort((a, b) => (a.sira ?? 0) - (b.sira ?? 0))
+
+  // Tüm listeye 0,1,2,... sıra numarası yaz — eşit sira değeri sorununu önler
+  const siraYenile = async (siraliListe) => {
+    await Promise.all(
+      siraliListe.map((h, i) =>
+        supabase.from('borc_harcamalar').update({ sira: i }).eq('id', h.id)
+      )
+    )
+    yukleDetay(seciliHesap.id)
+  }
+
+  const yukariTasi = async () => {
+    const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
+    if (idx <= 0) return
+    const yeni = [...pesinSirali]
+    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
+    await siraYenile(yeni)
+  }
+
+  const asagiTasi = async () => {
+    const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
+    if (idx < 0 || idx >= pesinSirali.length - 1) return
+    const yeni = [...pesinSirali]
+    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
+    await siraYenile(yeni)
+  }
+
   const kaydetPesin = async () => {
     if (!yeniSatir || !yeniSatir.tutar) return
-    const mevcutPesinler = harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
-    const minSira = mevcutPesinler.length > 0 ? Math.min(...mevcutPesinler.map(h => h.sira ?? 0)) : 0
-    await supabase.from('borc_harcamalar').insert({
+    // Yeni kayıt -1 sira ile eklenir (listenin başına gelir)
+    const { data: yeniKayit } = await supabase.from('borc_harcamalar').insert({
       hesap_id: seciliHesap.id,
       tarih: yeniSatir.tarih,
       tutar: parseFloat(yeniSatir.tutar) || 0,
@@ -1026,38 +1055,15 @@ export default function BorcAlacak() {
       harcama_tipi: 'pesin',
       taksit_sayisi: 1,
       ekstre_kesildi: false,
-      sira: minSira - 1,
-    })
+      sira: -1,
+    }).select().single()
     setYeniSatir(null)
-    yukleDetay(seciliHesap.id)
-  }
-
-  const pesinSirali = harcamalar
-    .filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
-    .sort((a, b) => (a.sira ?? 0) - (b.sira ?? 0))
-
-  const yukariTasi = async () => {
-    const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
-    if (idx <= 0) return
-    const a = pesinSirali[idx], b = pesinSirali[idx - 1]
-    const siraA = a.sira ?? idx, siraB = b.sira ?? (idx - 1)
-    await Promise.all([
-      supabase.from('borc_harcamalar').update({ sira: siraB }).eq('id', a.id),
-      supabase.from('borc_harcamalar').update({ sira: siraA }).eq('id', b.id),
-    ])
-    yukleDetay(seciliHesap.id)
-  }
-
-  const asagiTasi = async () => {
-    const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
-    if (idx < 0 || idx >= pesinSirali.length - 1) return
-    const a = pesinSirali[idx], b = pesinSirali[idx + 1]
-    const siraA = a.sira ?? idx, siraB = b.sira ?? (idx + 1)
-    await Promise.all([
-      supabase.from('borc_harcamalar').update({ sira: siraB }).eq('id', a.id),
-      supabase.from('borc_harcamalar').update({ sira: siraA }).eq('id', b.id),
-    ])
-    yukleDetay(seciliHesap.id)
+    // Yeni kayıt başa, eskiler arkaya — hepsini normalize et
+    if (yeniKayit) {
+      await siraYenile([yeniKayit, ...pesinSirali])
+    } else {
+      yukleDetay(seciliHesap.id)
+    }
   }
 
   // Hesabı kapat → geçmişe taşır (aktif=false)
