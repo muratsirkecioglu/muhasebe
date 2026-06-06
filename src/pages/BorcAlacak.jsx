@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, formatTarih, GIDER_KATEGORILER } from '../db'
 import TarihInput from '../components/TarihInput'
-import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X } from 'lucide-react'
+import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr' }
@@ -925,6 +925,7 @@ export default function BorcAlacak() {
   const [duzenleKalem, setDuzenleKalem] = useState(null)
   const [duzenleHarcama, setDuzenleHarcama] = useState(null)
   const [yeniSatir, setYeniSatir] = useState(null) // peşin satır inline ekleme
+  const [seciliSatirId, setSeciliSatirId] = useState(null) // sıralama için seçili satır
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukleHesaplar = useCallback(async () => {
@@ -1014,6 +1015,8 @@ export default function BorcAlacak() {
 
   const kaydetPesin = async () => {
     if (!yeniSatir || !yeniSatir.tutar) return
+    const mevcutPesinler = harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
+    const minSira = mevcutPesinler.length > 0 ? Math.min(...mevcutPesinler.map(h => h.sira ?? 0)) : 0
     await supabase.from('borc_harcamalar').insert({
       hesap_id: seciliHesap.id,
       tarih: yeniSatir.tarih,
@@ -1023,8 +1026,37 @@ export default function BorcAlacak() {
       harcama_tipi: 'pesin',
       taksit_sayisi: 1,
       ekstre_kesildi: false,
+      sira: minSira - 1,
     })
     setYeniSatir(null)
+    yukleDetay(seciliHesap.id)
+  }
+
+  const pesinSirali = harcamalar
+    .filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
+    .sort((a, b) => (a.sira ?? 0) - (b.sira ?? 0))
+
+  const yukariTasi = async () => {
+    const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
+    if (idx <= 0) return
+    const a = pesinSirali[idx], b = pesinSirali[idx - 1]
+    const siraA = a.sira ?? idx, siraB = b.sira ?? (idx - 1)
+    await Promise.all([
+      supabase.from('borc_harcamalar').update({ sira: siraB }).eq('id', a.id),
+      supabase.from('borc_harcamalar').update({ sira: siraA }).eq('id', b.id),
+    ])
+    yukleDetay(seciliHesap.id)
+  }
+
+  const asagiTasi = async () => {
+    const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
+    if (idx < 0 || idx >= pesinSirali.length - 1) return
+    const a = pesinSirali[idx], b = pesinSirali[idx + 1]
+    const siraA = a.sira ?? idx, siraB = b.sira ?? (idx + 1)
+    await Promise.all([
+      supabase.from('borc_harcamalar').update({ sira: siraB }).eq('id', a.id),
+      supabase.from('borc_harcamalar').update({ sira: siraA }).eq('id', b.id),
+    ])
     yukleDetay(seciliHesap.id)
   }
 
@@ -1376,10 +1408,20 @@ export default function BorcAlacak() {
             <div className="mb-5">
               <div className="flex items-center justify-between mb-1 px-0.5">
                 <p className="text-xs font-semibold text-orange-600">⏳ Tek Çekim Harcamalar</p>
-                <button onClick={() => setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: new Date().toISOString().split('T')[0], tutar: '' })}
-                  className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center justify-center transition-colors">
-                  <Plus size={13} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={yukariTasi} disabled={!seciliSatirId || pesinSirali.findIndex(h => h.id === seciliSatirId) <= 0}
+                    className="w-6 h-6 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center transition-colors">
+                    <ChevronUp size={13} />
+                  </button>
+                  <button onClick={asagiTasi} disabled={!seciliSatirId || pesinSirali.findIndex(h => h.id === seciliSatirId) >= pesinSirali.length - 1}
+                    className="w-6 h-6 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center transition-colors">
+                    <ChevronDown size={13} />
+                  </button>
+                  <button onClick={() => { setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: new Date().toISOString().split('T')[0], tutar: '' }); setSeciliSatirId(null) }}
+                    className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center justify-center transition-colors">
+                    <Plus size={13} />
+                  </button>
+                </div>
               </div>
               <div className="border border-orange-100 rounded-xl overflow-hidden">
                 {/* Başlık */}
@@ -1414,21 +1456,26 @@ export default function BorcAlacak() {
                 )}
 
                 {/* Mevcut peşin harcamalar */}
-                {harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin').length === 0 && !yeniSatir ? (
+                {pesinSirali.length === 0 && !yeniSatir ? (
                   <div className="text-center py-3 text-xs text-slate-400">Kayıt yok</div>
                 ) : (
-                  harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin').map(h => (
-                    <div key={h.id} className="grid grid-cols-[1fr_1fr_auto_auto_auto] border-b border-orange-50 last:border-0 px-2 py-1.5 gap-1 items-center hover:bg-orange-50 transition-colors">
-                      <span className="text-xs text-slate-700 truncate">{h.kategori || '—'}</span>
-                      <span className="text-xs text-slate-500 truncate">{h.aciklama || '—'}</span>
-                      <span className="w-20 text-xs text-slate-500 text-center">{formatTarih(h.tarih)}</span>
-                      <span className="w-16 text-xs font-semibold text-orange-600 text-right">₺{formatPara(h.tutar)}</span>
-                      <div className="w-12 flex gap-0.5 justify-end">
-                        <button onClick={() => setDuzenleHarcama(h)} className="p-1 rounded hover:bg-blue-100 text-slate-300 hover:text-blue-500"><Pencil size={12} /></button>
-                        <button onClick={() => silHarcama(h.id)} className="p-1 rounded hover:bg-red-100 text-slate-300 hover:text-red-500"><Trash2 size={12} /></button>
+                  pesinSirali.map(h => {
+                    const isSecili = h.id === seciliSatirId
+                    return (
+                      <div key={h.id}
+                        onClick={() => setSeciliSatirId(id => id === h.id ? null : h.id)}
+                        className={`grid grid-cols-[1fr_1fr_auto_auto_auto] border-b border-orange-50 last:border-0 px-2 py-1.5 gap-1 items-center cursor-pointer transition-colors ${isSecili ? 'bg-amber-100 border-amber-200' : 'hover:bg-orange-50'}`}>
+                        <span className={`text-xs truncate ${isSecili ? 'text-amber-800 font-semibold' : 'text-slate-700'}`}>{h.kategori || '—'}</span>
+                        <span className="text-xs text-slate-500 truncate">{h.aciklama || '—'}</span>
+                        <span className="w-20 text-xs text-slate-500 text-center">{formatTarih(h.tarih)}</span>
+                        <span className={`w-16 text-xs font-semibold text-right ${isSecili ? 'text-amber-700' : 'text-orange-600'}`}>₺{formatPara(h.tutar)}</span>
+                        <div className="w-12 flex gap-0.5 justify-end" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => setDuzenleHarcama(h)} className="p-1 rounded hover:bg-blue-100 text-slate-300 hover:text-blue-500"><Pencil size={12} /></button>
+                          <button onClick={() => silHarcama(h.id)} className="p-1 rounded hover:bg-red-100 text-slate-300 hover:text-red-500"><Trash2 size={12} /></button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>
