@@ -224,24 +224,76 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
 // --- Taksit Grubu Düzenleme Formu ---
 function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayit }) {
   const sembol = SEMBOL[doviz_cinsi] || doviz_cinsi
+  const [orijinal, setOrijinal] = useState([]) // DB'den gelen ham veri
   const [taksitler, setTaksitler] = useState([])
+  const [toplamTutar, setToplamTutar] = useState('')
   const [yukleniyor, setYukleniyor] = useState(true)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   useEffect(() => {
     supabase.from('borc_kalemler')
-      .select('*')
-      .eq('grup_id', grupId)
-      .order('taksit_no', { ascending: true })
+      .select('*').eq('grup_id', grupId).order('taksit_no', { ascending: true })
       .then(({ data }) => {
-        setTaksitler((data || []).map(r => ({
+        const rows = (data || []).map(r => ({
           ...r,
           _tutar: String(Math.abs(r.tutar || 0)),
           _tarih: r.tarih ? String(r.tarih).split('T')[0] : '',
-        })))
+        }))
+        setOrijinal(rows)
+        setTaksitler(rows)
+        const top = rows.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
+        setToplamTutar(String(Math.round(top * 100) / 100))
         setYukleniyor(false)
       })
   }, [grupId])
+
+  // Ödenmemiş taksitleri yeniden eşit dağıt
+  const dagit = (rows, yeniToplam) => {
+    const odenenler = rows.filter(r => r.odendi)
+    const odenenenToplam = odenenler.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
+    const kalan = (parseFloat(yeniToplam) || 0) - odenenenToplam
+    const odenmemisIdx = rows.map((r, i) => r.odendi ? null : i).filter(i => i !== null)
+    if (odenmemisIdx.length === 0) return rows
+    const esit = Math.round(kalan / odenmemisIdx.length * 100) / 100
+    const son = Math.round((kalan - esit * (odenmemisIdx.length - 1)) * 100) / 100
+    const yeni = [...rows]
+    odenmemisIdx.forEach((idx, j) => {
+      yeni[idx] = { ...yeni[idx], _tutar: String(j === odenmemisIdx.length - 1 ? son : esit) }
+    })
+    return yeni
+  }
+
+  // Toplam tutar değişince ödenmemişleri dağıt
+  const toplamDegisti = (val) => {
+    setToplamTutar(val)
+    setTaksitler(t => dagit(t, val))
+  }
+
+  // Taksit sayısı değişince satır ekle/çıkar ve dağıt
+  const sayiDegisti = (val) => {
+    const yeniSayi = Math.max(1, parseInt(val) || 1)
+    setTaksitler(mevcut => {
+      let rows = [...mevcut]
+      if (yeniSayi > rows.length) {
+        // Yeni satır ekle — son tarihe +1 ay
+        const sonTarih = rows.length > 0 ? new Date(rows[rows.length - 1]._tarih) : new Date()
+        for (let i = rows.length; i < yeniSayi; i++) {
+          const t = new Date(sonTarih)
+          t.setMonth(t.getMonth() + (i - rows.length + 1))
+          rows.push({
+            id: `new_${i}`, _tutar: '0', _tarih: t.toISOString().split('T')[0],
+            odendi: false, tur: 'taksit', hesap_id: hesapId, grup_id: grupId,
+            taksit_no: i + 1, taksit_toplam: yeniSayi,
+            kategori: mevcut[0]?.kategori || null, aciklama: mevcut[0]?.aciklama?.replace(/\(\d+\/\d+\)/, '') || null,
+            donem: null,
+          })
+        }
+      } else {
+        rows = rows.slice(0, yeniSayi)
+      }
+      return dagit(rows, toplamTutar)
+    })
+  }
 
   const guncelle = (idx, alan, deger) => {
     setTaksitler(t => { const y = [...t]; y[idx] = { ...y[idx], [alan]: deger }; return y })
@@ -250,26 +302,42 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
-    await Promise.all(taksitler.map(r =>
-      supabase.from('borc_kalemler').update({
-        tarih: r._tarih,
-        tutar: (parseFloat(r._tutar) || 0),
-        odendi: r.odendi,
-      }).eq('id', r.id)
-    ))
+    // Eski tüm taksitleri sil
+    await supabase.from('borc_kalemler').delete().eq('grup_id', grupId)
+    // Yenilerini oluştur
+    const yeniKalemler = taksitler.map((r, i) => {
+      const tarihStr = r._tarih
+      const d = new Date(tarihStr)
+      const donem = isNaN(d) ? null : d.getFullYear() * 100 + d.getMonth() + 1
+      return {
+        hesap_id: hesapId,
+        grup_id: grupId,
+        tarih: tarihStr,
+        donem,
+        tutar: parseFloat(r._tutar) || 0,
+        odendi: r.odendi || false,
+        tur: 'taksit',
+        taksit_no: i + 1,
+        taksit_toplam: taksitler.length,
+        kategori: r.kategori || null,
+        aciklama: r.aciklama
+          ? r.aciklama.replace(/\(\d+\/\d+\)/, `(${i + 1}/${taksitler.length})`)
+          : `Taksit (${i + 1}/${taksitler.length})`,
+      }
+    })
+    await supabase.from('borc_kalemler').insert(yeniKalemler)
     onKayit(); onKapat()
   }
 
-  const toplamTutar = taksitler.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
+  const toplamHesap = taksitler.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
+  const fark = Math.abs(toplamHesap - (parseFloat(toplamTutar) || 0))
+  const eslesti = fark < 0.01
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100 flex-shrink-0">
           <h3 className="font-semibold text-slate-800">✏️ Taksitleri Düzenle</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {taksitler.length} taksit · Toplam {sembol}{formatPara(toplamTutar)}
-          </p>
         </div>
 
         {yukleniyor ? (
@@ -278,28 +346,47 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           </div>
         ) : (
           <form onSubmit={kaydet} className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-5 space-y-2">
+            {/* Toplam ve taksit sayısı */}
+            <div className="px-5 pt-4 pb-3 flex gap-3 flex-shrink-0 border-b border-slate-100">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500 block mb-1">Toplam Tutar ({sembol})</label>
+                <input type="number" step="0.01" min="0" value={toplamTutar}
+                  onChange={e => toplamDegisti(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <div className="w-24">
+                <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
+                <input type="number" min="1" max="60" value={taksitler.length}
+                  onChange={e => sayiDegisti(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {taksitler.map((r, i) => (
-                <div key={r.id} className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 transition-colors ${r.odendi ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
-                  {/* Ödendi checkbox */}
+                <div key={r.id || i} className={`flex items-center gap-2 border rounded-xl px-3 py-2 transition-colors ${r.odendi ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
                   <button type="button" onClick={() => guncelle(i, 'odendi', !r.odendi)}
                     className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300'}`}>
                     {r.odendi && <span className="text-xs leading-none">✓</span>}
                   </button>
-                  {/* Taksit no + ay */}
-                  <span className="text-xs text-slate-500 w-10 flex-shrink-0 text-center font-medium">{r.taksit_no}/{r.taksit_toplam}</span>
-                  {/* Tarih */}
+                  <span className="text-xs text-slate-500 w-8 flex-shrink-0 text-center font-medium">{i + 1}</span>
                   <TarihInput value={r._tarih} onChange={v => guncelle(i, '_tarih', v)}
                     className="w-24 flex-shrink-0 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white" />
-                  {/* Tutar */}
                   <input type="number" step="0.01" min="0" value={r._tutar}
                     onChange={e => guncelle(i, '_tutar', e.target.value)}
-                    className={`flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white ${r.odendi ? 'line-through text-slate-400' : ''}`} />
+                    className={`flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white ${r.odendi ? 'text-slate-400' : ''}`} />
                   <span className="text-xs text-slate-400 flex-shrink-0">{sembol}</span>
                 </div>
               ))}
             </div>
-            <div className="p-5 border-t border-slate-100 flex gap-3 flex-shrink-0">
+
+            {!eslesti && (
+              <p className="text-xs text-center text-red-500 pb-2">
+                Toplam {sembol}{formatPara(toplamHesap)} / Hedef {sembol}{formatPara(parseFloat(toplamTutar) || 0)}
+              </p>
+            )}
+
+            <div className="p-4 border-t border-slate-100 flex gap-3 flex-shrink-0">
               <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
               <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
                 {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
