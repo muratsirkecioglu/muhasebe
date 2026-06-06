@@ -732,6 +732,7 @@ export default function BorcAlacak() {
   const [secili, setSecili] = useState(null)
   const [hareketler, setHareketler] = useState([])
   const [harcamalar, setHarcamalar] = useState([])
+  const [aktifBakiyeler, setAktifBakiyeler] = useState({}) // hesap_id → bakiye
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
   const [duzenleKalem, setDuzenleKalem] = useState(null)
   const [duzenleHarcama, setDuzenleHarcama] = useState(null)
@@ -743,7 +744,22 @@ export default function BorcAlacak() {
       supabase.from('borc_hesaplar').select('*').eq('aktif', true).order('created_at'),
       supabase.from('borc_hesaplar').select('*').eq('aktif', false).order('created_at'),
     ])
-    setHesaplar(aktif || [])
+    const aHesaplar = aktif || []
+    setHesaplar(aHesaplar)
+
+    // Aktif hesapların bakiyelerini yükle
+    if (aHesaplar.length > 0) {
+      const bakiyeMap = {}
+      await Promise.all(aHesaplar.map(async (h) => {
+        const { data } = await supabase.from('borc_kalemler')
+          .select('tutar, odendi')
+          .eq('hesap_id', h.id)
+        bakiyeMap[h.id] = (data || [])
+          .filter(r => h.tip === 'kk' ? !r.odendi : true)
+          .reduce((s, r) => s + (r.tutar || 0), 0)
+      }))
+      setAktifBakiyeler(bakiyeMap)
+    }
 
     // Geçmiş hesapların bakiyelerini yükle
     const gHesaplar = gecmis || []
@@ -970,21 +986,44 @@ export default function BorcAlacak() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
           {[...hesaplar].sort((a, b) => (a.tip === 'kk' ? -1 : 1) - (b.tip === 'kk' ? -1 : 1)).map(h => {
             const isSecili = secili?.id === h.id
-            const kkRenk = isSecili ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-slate-200 text-slate-700'
-            const kisiRenk = isSecili ? 'bg-red-500 text-white border-red-500' : 'bg-white border-slate-200 text-slate-700'
+            const bak = aktifBakiyeler[h.id] || 0
+            const sem = SEMBOL[h.doviz_cinsi] || h.doviz_cinsi
+
+            // Renk belirleme
+            let bg, border, text
+            if (h.tip === 'kk') {
+              bg = isSecili ? 'bg-blue-600' : 'bg-blue-50'
+              border = isSecili ? 'border-blue-600' : 'border-blue-200'
+              text = isSecili ? 'text-white' : 'text-blue-800'
+            } else if (bak > 0) {
+              bg = isSecili ? 'bg-red-500' : 'bg-red-50'
+              border = isSecili ? 'border-red-500' : 'border-red-200'
+              text = isSecili ? 'text-white' : 'text-red-800'
+            } else if (bak < 0) {
+              bg = isSecili ? 'bg-green-600' : 'bg-green-50'
+              border = isSecili ? 'border-green-600' : 'border-green-200'
+              text = isSecili ? 'text-white' : 'text-green-800'
+            } else {
+              bg = isSecili ? 'bg-slate-600' : 'bg-slate-50'
+              border = isSecili ? 'border-slate-600' : 'border-slate-200'
+              text = isSecili ? 'text-white' : 'text-slate-700'
+            }
+            const subText = isSecili ? 'opacity-75' : 'opacity-60'
+
             return (
               <button key={h.id} onClick={() => setSecili(h)}
-                className={`rounded-2xl p-4 text-left w-full transition-all border-2 shadow-sm ${h.tip === 'kk' ? kkRenk : kisiRenk}`}>
+                className={`rounded-2xl p-3 text-left w-full transition-all border-2 shadow-sm ${bg} ${border} ${text}`}>
                 <div className="flex items-center gap-1.5 mb-2">
                   {h.tip === 'kk'
-                    ? <CreditCard size={14} className={isSecili ? 'opacity-80' : 'text-purple-500'} />
-                    : <User size={14} className={isSecili ? 'opacity-80' : 'text-red-400'} />}
+                    ? <CreditCard size={13} className="flex-shrink-0" />
+                    : <User size={13} className="flex-shrink-0" />}
                   <span className="text-xs font-semibold truncate">{h.ad}</span>
                 </div>
-                <p className={`text-xs ${isSecili ? 'opacity-70' : 'text-slate-400'}`}>{h.doviz_cinsi}</p>
-                {h.tip === 'kk' && h.ekstre_gun && (
-                  <p className={`text-xs mt-0.5 ${isSecili ? 'opacity-70' : 'text-slate-400'}`}>Ekstre: {h.ekstre_gun}. gün</p>
-                )}
+                {/* Özet bakiye */}
+                <p className="text-base font-bold leading-tight">{sem}{formatPara(Math.abs(bak))}</p>
+                <p className={`text-xs mt-0.5 ${subText}`}>
+                  {h.tip === 'kk' ? 'Borç' : bak > 0 ? 'Borç' : bak < 0 ? 'Alacak' : 'Kapalı'}
+                </p>
               </button>
             )
           })}
