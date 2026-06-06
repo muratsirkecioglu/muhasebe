@@ -1,25 +1,23 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen, Eye, EyeOff, Moon, Sun, BarChart2 } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen, Eye, EyeOff, Moon, Sun } from 'lucide-react'
 import CoinIcon from './components/CoinIcon'
 import { AuthProvider, useAuth } from './AuthContext'
 import { MaskProvider, useMask } from './MaskContext'
 import { ThemeProvider, useTheme } from './ThemeContext'
 import { supabase } from './supabase'
-import Dashboard from './pages/Dashboard'
+import DashboardProj from './pages/DashboardProj'
 import HesapIslemler from './pages/HesapIslemler'
 import Birikim from './pages/Birikim'
 import BorcAlacak from './pages/BorcAlacak'
 import Import from './pages/Import'
 import AracMasraf from './pages/AracMasraf'
 import Login from './pages/Login'
-import Projeksiyon from './pages/Projeksiyon'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/hesap', icon: BookOpen, label: 'Hesap' },
   { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
-  { to: '/projeksiyon', icon: BarChart2, label: 'Projeksiyon' },
   { to: '/arac', icon: Car, label: 'Araç' },
   { to: '/import', icon: Upload, label: 'Import' },
 ]
@@ -155,11 +153,10 @@ function AppShell() {
         <SideNav />
         <main className="flex-1 md:ml-56 pb-20 md:pb-0">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<DashboardProj />} />
             <Route path="/hesap" element={<HesapIslemler />} />
             <Route path="/birikim" element={<Birikim />} />
             <Route path="/borc" element={<BorcAlacak />} />
-            <Route path="/projeksiyon" element={<Projeksiyon />} />
             <Route path="/arac" element={<AracMasraf />} />
             <Route path="/import" element={<Import />} />
           </Routes>
