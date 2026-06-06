@@ -732,7 +732,7 @@ export default function BorcAlacak() {
   const [secili, setSecili] = useState(null)
   const [hareketler, setHareketler] = useState([])
   const [harcamalar, setHarcamalar] = useState([])
-  const [aktifBakiyeler, setAktifBakiyeler] = useState({}) // hesap_id → bakiye
+  const [aktifBakiyeler, setAktifBakiyeler] = useState({}) // hesap_id → { bakiye, guncel, toplam }
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
   const [duzenleKalem, setDuzenleKalem] = useState(null)
   const [duzenleHarcama, setDuzenleHarcama] = useState(null)
@@ -749,14 +749,27 @@ export default function BorcAlacak() {
 
     // Aktif hesapların bakiyelerini yükle
     if (aHesaplar.length > 0) {
+      const buAyVal = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
       const bakiyeMap = {}
       await Promise.all(aHesaplar.map(async (h) => {
-        const { data } = await supabase.from('borc_kalemler')
-          .select('tutar, odendi')
-          .eq('hesap_id', h.id)
-        bakiyeMap[h.id] = (data || [])
-          .filter(r => h.tip === 'kk' ? !r.odendi : true)
-          .reduce((s, r) => s + (r.tutar || 0), 0)
+        const [{ data: kalemler }, { data: harcamalar }] = await Promise.all([
+          supabase.from('borc_kalemler').select('tutar, odendi, donem').eq('hesap_id', h.id),
+          h.tip === 'kk'
+            ? supabase.from('borc_harcamalar').select('tutar, ekstre_kesildi').eq('hesap_id', h.id)
+            : Promise.resolve({ data: [] }),
+        ])
+        const k = kalemler || []
+        const bekleyenToplam = (harcamalar || [])
+          .filter(r => !r.ekstre_kesildi).reduce((s, r) => s + (r.tutar || 0), 0)
+
+        if (h.tip === 'kk') {
+          const toplam = k.filter(r => !r.odendi).reduce((s, r) => s + (r.tutar || 0), 0) + bekleyenToplam
+          const guncel = k.filter(r => !r.odendi && r.donem === buAyVal).reduce((s, r) => s + (r.tutar || 0), 0) + bekleyenToplam
+          bakiyeMap[h.id] = { bakiye: toplam, guncel, toplam }
+        } else {
+          const bak = k.reduce((s, r) => s + (r.tutar || 0), 0)
+          bakiyeMap[h.id] = { bakiye: bak, guncel: null, toplam: null }
+        }
       }))
       setAktifBakiyeler(bakiyeMap)
     }
@@ -986,7 +999,8 @@ export default function BorcAlacak() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
           {[...hesaplar].sort((a, b) => (a.tip === 'kk' ? -1 : 1) - (b.tip === 'kk' ? -1 : 1)).map(h => {
             const isSecili = secili?.id === h.id
-            const bak = aktifBakiyeler[h.id] || 0
+            const detay = aktifBakiyeler[h.id] || { bakiye: 0, guncel: null, toplam: null }
+            const bak = detay.bakiye
             const sem = SEMBOL[h.doviz_cinsi] || h.doviz_cinsi
 
             // Renk belirleme
@@ -1020,10 +1034,25 @@ export default function BorcAlacak() {
                   <span className="text-xs font-semibold truncate">{h.ad}</span>
                 </div>
                 {/* Özet bakiye */}
-                <p className="text-base font-bold leading-tight">{sem}{formatPara(Math.abs(bak))}</p>
-                <p className={`text-xs mt-0.5 ${subText}`}>
-                  {h.tip === 'kk' ? 'Borç' : bak > 0 ? 'Borç' : bak < 0 ? 'Alacak' : 'Kapalı'}
-                </p>
+                {h.tip === 'kk' && detay.guncel !== null ? (
+                  <div className="space-y-1 mt-1">
+                    <div>
+                      <p className={`text-xs ${subText}`}>Güncel</p>
+                      <p className="text-sm font-bold leading-tight">{sem}{formatPara(detay.guncel)}</p>
+                    </div>
+                    <div>
+                      <p className={`text-xs ${subText}`}>Toplam</p>
+                      <p className="text-sm font-bold leading-tight">{sem}{formatPara(detay.toplam)}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-base font-bold leading-tight">{sem}{formatPara(Math.abs(bak))}</p>
+                    <p className={`text-xs mt-0.5 ${subText}`}>
+                      {bak > 0 ? 'Borç' : bak < 0 ? 'Alacak' : 'Kapalı'}
+                    </p>
+                  </>
+                )}
               </button>
             )
           })}
