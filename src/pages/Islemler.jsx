@@ -249,20 +249,22 @@ export default function Islemler() {
 
   const sil = async (tablo, id) => {
     if (!confirm('Bu işlem silinsin mi?')) return
-    // Silinecek kaydı bul
     const kayit = islemler.find(r => r._tablo === tablo && r.id === id)
-    // Ana kaydı sil
     await supabase.from(tablo).delete().eq('id', id)
-    // grup_id varsa birikim_hareketler'deki eşini de sil
     if (kayit?.grup_id) {
       await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
     }
     yukle()
   }
 
+  const toplamGelir = islemler.filter(r => r._tur === 'gelir').reduce((s, r) => s + (r.k || 0), 0)
+  const toplamGider = islemler.filter(r => r._tur === 'gider').reduce((s, r) => s + (r.k || 0), 0)
+  const net = toplamGelir - toplamGider
+
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-5">
+      {/* Başlık */}
+      <div className="flex items-center justify-between mb-4">
         <select
           value={donem}
           onChange={e => setDonem(parseInt(e.target.value))}
@@ -284,6 +286,27 @@ export default function Islemler() {
         </div>
       </div>
 
+      {/* Dönem Özeti */}
+      {!yukleniyor && islemler.length > 0 && (
+        <div className="flex gap-2 mb-4">
+          <div className="flex-1 bg-green-50 border border-green-100 rounded-xl px-3 py-2">
+            <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wide">Gelir</p>
+            <p className="text-sm font-bold text-green-700">₺{formatPara(toplamGelir)}</p>
+          </div>
+          <div className="flex-1 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+            <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide">Gider</p>
+            <p className="text-sm font-bold text-red-600">₺{formatPara(toplamGider)}</p>
+          </div>
+          <div className={`flex-1 border rounded-xl px-3 py-2 ${net >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100'}`}>
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Net</p>
+            <p className={`text-sm font-bold ${net >= 0 ? 'text-blue-700' : 'text-orange-600'}`}>
+              {net >= 0 ? '+' : ''}₺{formatPara(Math.abs(net))}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Tablo */}
       {yukleniyor ? (
         <div className="flex justify-center py-16">
           <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -291,34 +314,83 @@ export default function Islemler() {
       ) : islemler.length === 0 ? (
         <div className="text-center py-16 text-slate-400 text-sm">Bu dönemde işlem yok.</div>
       ) : (
-        <div className="space-y-2">
-          {islemler.map(r => (
-            <div key={`${r._tablo}-${r.id}`}
-              className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-100 flex items-center gap-3">
-              <div className={`w-2 h-8 rounded-full flex-shrink-0 ${r._tur === 'gelir' ? 'bg-green-400' : 'bg-red-400'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-medium text-slate-800">{r.kategori}</span>
-                  {r.aciklama && <span className="text-xs text-slate-400 truncate">{r.aciklama}</span>}
-                </div>
-                <p className="text-xs text-slate-400">{formatTarih(r.tarih)}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className={`text-sm font-bold ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>
-                  {r._tur === 'gelir' ? '+' : '-'}₺{maskeli && r.kategori === 'Maaş' ? '••••' : formatPara(r.k)}
-                </p>
-                <span className="text-xs text-slate-400">{r.hesap === 'N' ? '💵 Nakit' : '🏦 Banka'}</span>
-              </div>
-              <button onClick={() => setDuzenle(r)}
-                className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
-                <Pencil size={15} />
-              </button>
-              <button onClick={() => sil(r._tablo, r.id)}
-                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
+        <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
+                <th className="text-left px-3 py-2.5 font-semibold w-[88px]">Tarih</th>
+                <th className="text-left px-3 py-2.5 font-semibold">Kategori</th>
+                <th className="text-left px-3 py-2.5 font-semibold hidden sm:table-cell">Açıklama</th>
+                <th className="text-center px-2 py-2.5 font-semibold w-8">H</th>
+                <th className="text-right px-3 py-2.5 font-semibold w-24">Tutar</th>
+                <th className="w-14"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {islemler.map(r => (
+                <tr key={`${r._tablo}-${r.id}`}
+                  className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  {/* Tarih — sol kenar rengi ile tür göstergesi */}
+                  <td className={`pl-3 pr-2 py-2 text-slate-400 whitespace-nowrap border-l-2 ${r._tur === 'gelir' ? 'border-green-400' : 'border-red-400'}`}>
+                    {formatTarih(r.tarih)}
+                  </td>
+                  {/* Kategori + mobile açıklama */}
+                  <td className="px-3 py-2">
+                    <span className={`font-semibold ${r._tur === 'gelir' ? 'text-green-700' : 'text-slate-700'}`}>
+                      {r.kategori}
+                    </span>
+                    {r.aciklama && (
+                      <span className="block text-[10px] text-slate-400 truncate max-w-[110px] sm:hidden mt-0.5">
+                        {r.aciklama}
+                      </span>
+                    )}
+                  </td>
+                  {/* Açıklama — sadece geniş ekranda */}
+                  <td className="px-3 py-2 text-slate-400 max-w-[140px] truncate hidden sm:table-cell">
+                    {r.aciklama || <span className="text-slate-300">—</span>}
+                  </td>
+                  {/* Hesap */}
+                  <td className="px-2 py-2 text-center">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      r.hesap === 'N'
+                        ? 'bg-slate-100 text-slate-500'
+                        : 'bg-blue-50 text-blue-500'
+                    }`}>
+                      {r.hesap === 'N' ? 'N' : 'B'}
+                    </span>
+                  </td>
+                  {/* Tutar */}
+                  <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>
+                    {r._tur === 'gelir' ? '+' : '-'}₺{maskeli && r.kategori === 'Maaş' ? '••••' : formatPara(r.k)}
+                  </td>
+                  {/* Aksiyonlar */}
+                  <td className="px-2 py-1.5">
+                    <div className="flex gap-0.5 justify-end">
+                      <button onClick={() => setDuzenle(r)}
+                        className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
+                        <Pencil size={12} />
+                      </button>
+                      <button onClick={() => sil(r._tablo, r.id)}
+                        className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-50 border-t border-slate-200">
+                <td colSpan="4" className="px-3 py-2 text-slate-400">
+                  {islemler.length} işlem
+                </td>
+                <td className={`px-3 py-2 text-right font-bold ${net >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                  {net >= 0 ? '+' : ''}₺{formatPara(Math.abs(net))}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
 
