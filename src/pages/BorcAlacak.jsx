@@ -224,9 +224,9 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
 // --- Taksit Grubu Düzenleme Formu ---
 function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayit }) {
   const sembol = SEMBOL[doviz_cinsi] || doviz_cinsi
-  const [orijinal, setOrijinal] = useState([]) // DB'den gelen ham veri
   const [taksitler, setTaksitler] = useState([])
   const [toplamTutar, setToplamTutar] = useState('')
+  const [islemTarihi, setIslemTarihi] = useState('')
   const [yukleniyor, setYukleniyor] = useState(true)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -239,10 +239,11 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           _tutar: String(Math.abs(r.tutar || 0)),
           _tarih: r.tarih ? String(r.tarih).split('T')[0] : '',
         }))
-        setOrijinal(rows)
         setTaksitler(rows)
         const top = rows.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
         setToplamTutar(String(Math.round(top * 100) / 100))
+        // İlk taksit tarihi = işlem tarihi referansı
+        setIslemTarihi(rows[0]?._tarih || new Date().toISOString().split('T')[0])
         setYukleniyor(false)
       })
   }, [grupId])
@@ -267,6 +268,19 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
   const toplamDegisti = (val) => {
     setToplamTutar(val)
     setTaksitler(t => dagit(t, val))
+  }
+
+  // İşlem tarihi değişince tüm taksit tarihlerini kaydır
+  const islemTarihiDegisti = (val) => {
+    setIslemTarihi(val)
+    if (!val) return
+    const baslangic = new Date(val)
+    if (isNaN(baslangic)) return
+    setTaksitler(t => t.map((r, i) => {
+      const t2 = new Date(baslangic)
+      t2.setMonth(t2.getMonth() + i)
+      return { ...r, _tarih: t2.toISOString().split('T')[0] }
+    }))
   }
 
   // Taksit sayısı değişince satır ekle/çıkar ve dağıt
@@ -346,19 +360,27 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           </div>
         ) : (
           <form onSubmit={kaydet} className="flex flex-col flex-1 overflow-hidden">
-            {/* Toplam ve taksit sayısı */}
-            <div className="px-5 pt-4 pb-3 flex gap-3 flex-shrink-0 border-b border-slate-100">
-              <div className="flex-1">
-                <label className="text-xs font-medium text-slate-500 block mb-1">Toplam Tutar ({sembol})</label>
-                <input type="number" step="0.01" min="0" value={toplamTutar}
-                  onChange={e => toplamDegisti(e.target.value)}
+            {/* Üst alanlar */}
+            <div className="px-5 pt-4 pb-3 space-y-3 flex-shrink-0 border-b border-slate-100">
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">İşlem Tarihi (1. taksit)</label>
+                <TarihInput value={islemTarihi} onChange={islemTarihiDegisti}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                <p className="text-xs text-slate-400 mt-1">Değişince tüm taksit tarihleri aylık kaydırılır</p>
               </div>
-              <div className="w-24">
-                <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
-                <input type="number" min="1" max="60" value={taksitler.length}
-                  onChange={e => sayiDegisti(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-slate-500 block mb-1">Toplam Tutar ({sembol})</label>
+                  <input type="number" step="0.01" min="0" value={toplamTutar}
+                    onChange={e => toplamDegisti(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                </div>
+                <div className="w-24">
+                  <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
+                  <input type="number" min="1" max="60" value={taksitler.length}
+                    onChange={e => sayiDegisti(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                </div>
               </div>
             </div>
 
