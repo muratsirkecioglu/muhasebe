@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, donemLabel } from '../db'
+import { useMask } from '../MaskContext'
 
 const BASLANGIC_DONEM = 201604
 const BASLANGIC_K = 269
@@ -88,6 +89,8 @@ async function aylikVerileriHesapla() {
 }
 
 export default function Hesap() {
+  const { maskeli } = useMask()
+  const gizle = (deger) => maskeli ? '••••' : (deger !== 0 ? formatPara(deger) : '—')
   const [satirlar, setSatirlar] = useState([])
   const [yukleniyor, setYukleniyor] = useState(true)
   const [filtre, setFiltre] = useState('son12') // 'son12' | 'tamami'
@@ -153,7 +156,7 @@ export default function Hesap() {
                 <td className={`px-3 py-2 text-right font-bold bg-slate-50 ${r.bakiyeN >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
                   {formatPara(r.bakiyeN)}
                 </td>
-                <td className="px-3 py-2 text-right text-green-600">{r.gelirK !== 0 ? formatPara(r.gelirK) : '—'}</td>
+                <td className="px-3 py-2 text-right text-green-600">{gizle(r.gelirK)}</td>
                 <td className="px-3 py-2 text-right text-green-400">{r.gelirN !== 0 ? formatPara(r.gelirN) : '—'}</td>
                 <td className="px-3 py-2 text-right text-red-500">{r.giderK !== 0 ? formatPara(r.giderK) : '—'}</td>
                 <td className="px-3 py-2 text-right text-red-300">{r.giderN !== 0 ? formatPara(r.giderN) : '—'}</td>

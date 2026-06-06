@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, formatTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2, Pencil } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
+import { useMask } from '../MaskContext'
 
 // 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
 function donemListesi() {
@@ -221,6 +222,7 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
 }
 
 export default function Islemler() {
+  const { maskeli } = useMask()
   const [donem, setDonem] = useState(buDonem())
   const [form, setForm] = useState(null)
   const [duzenle, setDuzenle] = useState(null)
@@ -303,7 +305,7 @@ export default function Islemler() {
               </div>
               <div className="text-right flex-shrink-0">
                 <p className={`text-sm font-bold ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>
-                  {r._tur === 'gelir' ? '+' : '-'}₺{formatPara(r.k)}
+                  {r._tur === 'gelir' ? '+' : '-'}₺{maskeli && r.kategori === 'Maaş' ? '••••' : formatPara(r.k)}
                 </p>
                 <span className="text-xs text-slate-400">{r.hesap === 'N' ? '💵 Nakit' : '🏦 Banka'}</span>
               </div>

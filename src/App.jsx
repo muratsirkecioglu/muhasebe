@@ -1,7 +1,8 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen, Eye, EyeOff } from 'lucide-react'
 import CoinIcon from './components/CoinIcon'
 import { AuthProvider, useAuth } from './AuthContext'
+import { MaskProvider, useMask } from './MaskContext'
 import { supabase } from './supabase'
 import Dashboard from './pages/Dashboard'
 import Islemler from './pages/Islemler'
@@ -23,6 +24,7 @@ const navItems = [
 ]
 
 function BottomNav() {
+  const { maskeli, toggleMask } = useMask()
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-50 md:hidden">
       <div className="flex">
@@ -41,6 +43,15 @@ function BottomNav() {
             <span>{label}</span>
           </NavLink>
         ))}
+        <button
+          onClick={toggleMask}
+          className={`flex-1 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
+            maskeli ? 'text-amber-500' : 'text-slate-400'
+          }`}
+        >
+          {maskeli ? <EyeOff size={20} /> : <Eye size={20} />}
+          <span>{maskeli ? 'Maskeli' : 'Görünür'}</span>
+        </button>
       </div>
     </nav>
   )
@@ -48,6 +59,7 @@ function BottomNav() {
 
 function SideNav() {
   const { user } = useAuth()
+  const { maskeli, toggleMask } = useMask()
   return (
     <aside className="hidden md:flex flex-col w-56 bg-white border-r border-slate-200 fixed top-0 left-0 bottom-0">
       <div className="px-4 py-5 border-b border-slate-100">
@@ -71,7 +83,18 @@ function SideNav() {
           </NavLink>
         ))}
       </nav>
-      <div className="p-3 border-t border-slate-100">
+      <div className="p-3 border-t border-slate-100 space-y-1">
+        <button
+          onClick={toggleMask}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm w-full transition-colors ${
+            maskeli
+              ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+              : 'text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          {maskeli ? <EyeOff size={18} /> : <Eye size={18} />}
+          {maskeli ? 'Maskeleme Açık' : 'Maskeleme'}
+        </button>
         <button
           onClick={() => supabase.auth.signOut()}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-500 hover:bg-slate-50 w-full"
@@ -87,7 +110,6 @@ function SideNav() {
 function AppShell() {
   const { user } = useAuth()
 
-  // Oturum yüklenene kadar bekle
   if (user === undefined) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
@@ -96,7 +118,6 @@ function AppShell() {
     )
   }
 
-  // Giriş yapılmamışsa login sayfası
   if (user === null) {
     return <Login />
   }
@@ -125,7 +146,9 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppShell />
+      <MaskProvider>
+        <AppShell />
+      </MaskProvider>
     </AuthProvider>
   )
 }
