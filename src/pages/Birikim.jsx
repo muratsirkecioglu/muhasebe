@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, formatTarih } from '../db'
-import { Plus, Trash2, Download, Pencil } from 'lucide-react'
+import { Plus, Trash2, Download, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import * as XLSX from 'xlsx'
 
@@ -364,6 +364,10 @@ export default function Birikim() {
   const [hareketler, setHareketler] = useState([])
   const [filtreTur, setFiltreTur] = useState('Tümü')
   const [yukleniyor, setYukleniyor] = useState(true)
+  const [seciliSatirId, setSeciliSatirId] = useState(null)
+
+  // Filtre değişince seçimi sıfırla
+  useEffect(() => { setSeciliSatirId(null) }, [filtreTur])
 
   const yukle = useCallback(async () => {
     setYukleniyor(true)
@@ -391,9 +395,7 @@ export default function Birikim() {
     if (!confirm('Silinsin mi?')) return
     const kayit = hareketler.find(r => r.id === id)
     if (kayit?.grup_id) {
-      // Birikim_hareketler'deki tüm grup kayıtlarını sil
       await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
-      // Gider veya gelir tarafındaki eşini de sil (Birikim kategorisi)
       await supabase.from('giderler').delete().eq('grup_id', kayit.grup_id)
       await supabase.from('gelirler').delete().eq('grup_id', kayit.grup_id)
     } else {
@@ -402,18 +404,61 @@ export default function Birikim() {
     yukle()
   }
 
-  // Her hesabın bakiyesi
+  // Bakiyeler — tüm kayıtlardan hesaplanır
   const bakiyeler = {}
   for (const h of HESAPLAR) {
-    bakiyeler[h.tur] = hareketler
-      .filter(r => r.tur === h.tur)
-      .reduce((s, r) => s + (r.miktar || 0), 0)
+    bakiyeler[h.tur] = hareketler.filter(r => r.tur === h.tur).reduce((s, r) => s + (r.miktar || 0), 0)
   }
 
-  const filtrelenmis = filtreTur === 'Tümü' ? hareketler : hareketler.filter(r => r.tur === filtreTur)
+  // Filtrelenmiş + sıralanmış liste
+  // Tümü: tarih sırası, Specific: sira sırası (yoksa tarih)
+  const filtrelenmis = (() => {
+    const base = filtreTur === 'Tümü'
+      ? hareketler
+      : hareketler.filter(r => r.tur === filtreTur)
+    if (filtreTur === 'Tümü') return base
+    return [...base].sort((a, b) => {
+      if (a.sira != null && b.sira != null) return a.sira - b.sira
+      if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
+      return a.sira != null ? -1 : 1
+    })
+  })()
+
+  const gosterilen = filtreTur === 'Tümü' ? filtrelenmis.slice(0, 200) : filtrelenmis
+  const siralamaAktif = filtreTur !== 'Tümü'
+  const seciliIdx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
+
+  // Sıra normalize: seçili hesabın tüm satırlarına 0,1,2,… yazar
+  const siraYenile = async (siraliListe) => {
+    await Promise.all(
+      siraliListe.map((r, i) =>
+        supabase.from('birikim_hareketler').update({ sira: i }).eq('id', r.id)
+      )
+    )
+    yukle()
+  }
+
+  const yukariTasi = async () => {
+    const idx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
+    if (idx <= 0) return
+    const yeni = [...filtrelenmis]
+    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
+    await siraYenile(yeni)
+  }
+
+  const asagiTasi = async () => {
+    const idx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
+    if (idx < 0 || idx >= filtrelenmis.length - 1) return
+    const yeni = [...filtrelenmis]
+    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
+    await siraYenile(yeni)
+  }
+
+  const secilenHesap = filtreTur !== 'Tümü' ? HESAPLAR.find(h => h.tur === filtreTur) : null
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
+      {/* Başlık */}
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-semibold text-slate-700">Birikim & Yatırım</h2>
         <div className="flex gap-2">
@@ -428,18 +473,17 @@ export default function Birikim() {
         </div>
       </div>
 
-      {/* 12 hesap özet kartları */}
+      {/* Hesap özet kartları */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
         {HESAPLAR.map(h => {
           const bakiye = bakiyeler[h.tur] || 0
-          const birim = h.doviz
           return (
             <div key={h.tur}
               onClick={() => setFiltreTur(f => f === h.tur ? 'Tümü' : h.tur)}
               className={`rounded-2xl p-4 border cursor-pointer transition-all ${h.renk} ${filtreTur === h.tur ? 'ring-2 ring-blue-400' : ''}`}>
               <p className="text-xs font-semibold opacity-60 mb-1">{h.emoji} {h.tur}</p>
               <p className="text-lg font-bold">
-                {birim === 'TL' ? `₺${formatPara(bakiye)}` : `${formatPara(bakiye)} ${birim}`}
+                {h.doviz === 'TL' ? `₺${formatPara(bakiye)}` : `${formatPara(bakiye)} ${h.doviz}`}
               </p>
             </div>
           )
@@ -460,52 +504,149 @@ export default function Birikim() {
         ))}
       </div>
 
-      {/* İşlem listesi */}
+      {/* Tablo */}
       {yukleniyor ? (
         <div className="flex justify-center py-12">
           <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : filtrelenmis.length === 0 ? (
+      ) : gosterilen.length === 0 ? (
         <div className="text-center py-12 text-slate-400 text-sm">
           Kayıt yok. Import sayfasından Excel yükleyin veya İşlem ekleyin.
         </div>
       ) : (
-        <div className="space-y-2">
-          {(filtreTur === 'Tümü' ? filtrelenmis.slice(0, 200) : filtrelenmis).map(r => {
-            const hesap = HESAPLAR.find(h => h.tur === r.tur)
-            const birim = hesap?.doviz || 'TL'
-            return (
-              <div key={r.id} className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-100 flex items-center gap-3">
-                <div className={`w-2 h-8 rounded-full flex-shrink-0 ${r.miktar >= 0 ? 'bg-green-400' : 'bg-red-400'}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-slate-600">{r.tur}</span>
-                    {r.alt_tip && <span className="text-xs text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">{r.alt_tip}</span>}
-                    {r.aciklama && <span className="text-xs text-slate-400 truncate">{r.aciklama}</span>}
-                  </div>
-                  <p className="text-xs text-slate-400 mt-0.5">{formatTarih(r.tarih)}</p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className={`text-sm font-bold ${r.miktar >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {r.miktar >= 0 ? '+' : ''}{formatPara(r.miktar)} {birim !== 'TL' ? birim : '₺'}
-                  </p>
-                  {birim !== 'TL' && r.islem_tl !== 0 && (
-                    <p className="text-xs text-slate-400">₺{formatPara(Math.abs(r.islem_tl))}</p>
+        <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
+                <th className="text-left px-3 py-2.5 font-semibold w-[88px]">Tarih</th>
+                <th className="text-left px-3 py-2.5 font-semibold">
+                  {filtreTur === 'Tümü' ? 'Hesap' : 'İşlem'}
+                </th>
+                <th className="text-left px-3 py-2.5 font-semibold hidden sm:table-cell">Açıklama</th>
+                <th className="text-right px-3 py-2.5 font-semibold w-32">Miktar</th>
+                <th className="w-16 pr-2">
+                  {siralamaAktif && (
+                    <div className="flex gap-0.5 justify-end">
+                      <button onClick={yukariTasi}
+                        disabled={!seciliSatirId || seciliIdx <= 0}
+                        className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 disabled:opacity-30 flex items-center justify-center transition-colors">
+                        <ChevronUp size={13} />
+                      </button>
+                      <button onClick={asagiTasi}
+                        disabled={!seciliSatirId || seciliIdx >= filtrelenmis.length - 1}
+                        className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 disabled:opacity-30 flex items-center justify-center transition-colors">
+                        <ChevronDown size={13} />
+                      </button>
+                    </div>
                   )}
-                </div>
-                <button onClick={() => setDuzenle(r)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 flex-shrink-0">
-                  <Pencil size={15} />
-                </button>
-                <button onClick={() => sil(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 flex-shrink-0">
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            )
-          })}
-          {filtreTur === 'Tümü' && filtrelenmis.length > 200 && (
-            <p className="text-center text-xs text-slate-400 py-2">İlk 200 kayıt gösteriliyor. Hesap filtresi kullanın.</p>
-          )}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {gosterilen.map(r => {
+                const hesap = HESAPLAR.find(h => h.tur === r.tur)
+                const birim = hesap?.doviz || 'TL'
+                const isSecili = r.id === seciliSatirId
+                return (
+                  <tr key={r.id}
+                    onClick={() => siralamaAktif && setSeciliSatirId(id => id === r.id ? null : r.id)}
+                    className={`border-b border-slate-50 last:border-0 transition-colors ${
+                      siralamaAktif ? 'cursor-pointer' : ''
+                    } ${isSecili ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
+                    {/* Tarih + sol renk çizgisi */}
+                    <td className={`pl-3 pr-2 py-2 whitespace-nowrap border-l-2 ${
+                      isSecili ? 'text-amber-700 border-amber-400' :
+                      r.miktar >= 0 ? 'text-slate-400 border-green-400' : 'text-slate-400 border-red-400'
+                    }`}>
+                      {formatTarih(r.tarih)}
+                    </td>
+                    {/* Hesap / İşlem tipi */}
+                    <td className="px-3 py-2">
+                      {filtreTur === 'Tümü' ? (
+                        <>
+                          <span className={`font-semibold ${isSecili ? 'text-amber-800' : 'text-slate-700'}`}>
+                            {hesap?.emoji} {r.tur.replace('Yatırım ', '')}
+                          </span>
+                          {r.alt_tip && (
+                            <span className="ml-1.5 text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                              {r.alt_tip}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className={`font-semibold ${
+                            isSecili ? 'text-amber-800' :
+                            r.miktar >= 0 ? 'text-green-700' : 'text-red-600'
+                          }`}>
+                            {r.alt_tip || '—'}
+                          </span>
+                          {r.aciklama && (
+                            <span className="block text-[10px] text-slate-400 truncate max-w-[100px] sm:hidden mt-0.5">
+                              {r.aciklama}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    {/* Açıklama — sadece geniş ekranda */}
+                    <td className="px-3 py-2 text-slate-400 max-w-[160px] truncate hidden sm:table-cell">
+                      {r.aciklama || <span className="text-slate-300">—</span>}
+                    </td>
+                    {/* Miktar */}
+                    <td className="px-3 py-2 text-right">
+                      <span className={`font-bold ${
+                        isSecili ? 'text-amber-700' :
+                        r.miktar >= 0 ? 'text-green-600' : 'text-red-500'
+                      }`}>
+                        {r.miktar >= 0 ? '+' : ''}{formatPara(r.miktar)} {birim !== 'TL' ? birim : '₺'}
+                      </span>
+                      {birim !== 'TL' && r.islem_tl != null && r.islem_tl !== 0 && (
+                        <span className="block text-[10px] text-slate-400">
+                          ₺{formatPara(Math.abs(r.islem_tl))}
+                        </span>
+                      )}
+                    </td>
+                    {/* Aksiyonlar */}
+                    <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-0.5 justify-end">
+                        <button onClick={() => setDuzenle(r)}
+                          className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
+                          <Pencil size={12} />
+                        </button>
+                        <button onClick={() => sil(r.id)}
+                          className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            {/* Footer: seçili hesap bakiyesi */}
+            {secilenHesap && (
+              <tfoot>
+                <tr className="bg-slate-50 border-t border-slate-200">
+                  <td colSpan="3" className="px-3 py-2 text-slate-400">
+                    {filtrelenmis.length} kayıt
+                  </td>
+                  <td className="px-3 py-2 text-right font-bold">
+                    <span className={bakiyeler[filtreTur] >= 0 ? 'text-green-600' : 'text-red-500'}>
+                      {bakiyeler[filtreTur] >= 0 ? '+' : ''}{formatPara(bakiyeler[filtreTur])}{' '}
+                      {secilenHesap.doviz !== 'TL' ? secilenHesap.doviz : '₺'}
+                    </span>
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
+      )}
+
+      {filtreTur === 'Tümü' && filtrelenmis.length > 200 && (
+        <p className="text-center text-xs text-slate-400 py-2">İlk 200 kayıt gösteriliyor. Hesap filtresi kullanın.</p>
       )}
 
       {ekle && <IslemFormu onKapat={() => setEkle(false)} onKayit={yukle} />}
