@@ -289,29 +289,40 @@ export default function Projeksiyon() {
     setYukleniyor(true)
     const buAyVal = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
 
-    const [sabitRes, hesaplarRes, kalemlerRes] = await Promise.all([
+    const [sabitRes, hesaplarRes, harcamalarRes, kalemlerRes] = await Promise.all([
       supabase.from('sabit_kalemler').select('*').order('sira', { nullsFirst: false }).order('created_at'),
-      supabase.from('borc_hesaplar').select('id, doviz_cinsi').eq('aktif', true),
+      // Sadece KK hesapları — doviz_cinsi için
+      supabase.from('borc_hesaplar').select('id, doviz_cinsi').eq('aktif', true).eq('tip', 'kk'),
+      // Ekstre kesilmemiş tüm KK harcamaları
+      supabase.from('borc_harcamalar').select('hesap_id, tutar').eq('ekstre_kesildi', false),
+      // Bu ayın ödenmemiş taksit kalemleri
       supabase.from('borc_kalemler')
-        .select('hesap_id, tutar, tur, odendi, donem')
+        .select('hesap_id, tutar')
         .eq('donem', buAyVal)
         .eq('odendi', false)
-        .in('tur', ['ekstre', 'taksit']),
+        .eq('tur', 'taksit'),
     ])
 
     setKalemler(sabitRes.data || [])
 
-    // Bu ayın KK ekstre + taksit tutarlarını dövize göre grupla
+    // KK hesap → doviz_cinsi map
     const hesapMap = {}
     for (const h of hesaplarRes.data || []) hesapMap[h.id] = h
 
-    const ekstre = {}, taksit = {}
+    // Ekstre kesilmemiş harcamalar (borc_harcamalar)
+    const ekstre = {}
+    for (const r of harcamalarRes.data || []) {
+      const doviz = hesapMap[r.hesap_id]?.doviz_cinsi || 'TL'
+      ekstre[doviz] = (ekstre[doviz] || 0) + (r.tutar || 0)
+    }
+
+    // Bu ayın taksit ödemeleri (borc_kalemler)
+    const taksit = {}
     for (const k of kalemlerRes.data || []) {
       const doviz = hesapMap[k.hesap_id]?.doviz_cinsi || 'TL'
-      const tutar = k.tutar || 0
-      if (k.tur === 'ekstre') ekstre[doviz] = (ekstre[doviz] || 0) + tutar
-      else if (k.tur === 'taksit') taksit[doviz] = (taksit[doviz] || 0) + tutar
+      taksit[doviz] = (taksit[doviz] || 0) + (k.tutar || 0)
     }
+
     setKkOzet({ ekstre, taksit })
 
     setYukleniyor(false)
@@ -440,9 +451,9 @@ export default function Projeksiyon() {
             <div className="flex items-center gap-2 px-4 py-3 bg-purple-50 border-b border-purple-100">
               <CalendarDays size={13} className="text-purple-400" />
               <h3 className="text-xs font-bold text-purple-600 uppercase tracking-wide">
-                Bu Ay KK Yükümlülükleri
+                KK Yükümlülükleri
               </h3>
-              <span className="ml-auto text-[10px] text-purple-400 font-medium capitalize">{buAyLabel}</span>
+              <span className="ml-auto text-[10px] text-purple-400 font-medium capitalize">{buAyLabel} taksitleri</span>
             </div>
 
             {/* Ekstre satırları */}
@@ -450,7 +461,7 @@ export default function Projeksiyon() {
               <div key={`e-${doviz}`} className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
                 <span className="flex items-center gap-2 text-sm text-slate-600">
                   <CreditCard size={13} className="text-purple-400" />
-                  Ekstre
+                  Ekstre Kesilmemiş Harcamalar
                   {Object.keys(kkOzet.ekstre).length > 1 && <span className="text-xs text-slate-400">({doviz})</span>}
                 </span>
                 <span className="text-sm font-bold text-purple-600">
