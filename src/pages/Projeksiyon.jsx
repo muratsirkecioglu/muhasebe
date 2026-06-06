@@ -43,7 +43,8 @@ function KalemFormu({ kalem, onKapat, onKayit }) {
     if (kalem?.id) {
       await supabase.from('sabit_kalemler').update(payload).eq('id', kalem.id)
     } else {
-      await supabase.from('sabit_kalemler').insert(payload)
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('sabit_kalemler').insert({ ...payload, user_id: user.id })
     }
     onKayit()
   }
