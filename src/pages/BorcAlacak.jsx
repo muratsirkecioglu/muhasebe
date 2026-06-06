@@ -925,7 +925,8 @@ export default function BorcAlacak() {
   const [duzenleKalem, setDuzenleKalem] = useState(null)
   const [duzenleHarcama, setDuzenleHarcama] = useState(null)
   const [yeniSatir, setYeniSatir] = useState(null) // peşin satır inline ekleme
-  const [seciliSatirId, setSeciliSatirId] = useState(null) // sıralama için seçili satır
+  const [seciliSatirId, setSeciliSatirId] = useState(null) // peşin harcama sıralama
+  const [seciliHareketId, setSeciliHareketId] = useState(null) // hareket sıralama
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukleHesaplar = useCallback(async () => {
@@ -1101,6 +1102,9 @@ export default function BorcAlacak() {
     }
   }, [secili, hesaplar])
 
+  // Hesap veya dönem değişince hareket seçimini sıfırla
+  useEffect(() => { setSeciliHareketId(null) }, [secili, seciliDonem])
+
   const seciliHesap = hesaplar.find(h => h.id === secili?.id) || null
   const sembol = seciliHesap ? (SEMBOL[seciliHesap.doviz_cinsi] || seciliHesap.doviz_cinsi) : '₺'
   const bekleyenSayisi = harcamalar.filter(h => !h.ekstre_kesildi).length
@@ -1129,10 +1133,47 @@ export default function BorcAlacak() {
     return `${y}/${String(m).padStart(2, '0')}`
   }
 
-  // Filtrelenmiş hareketler
-  const gosterilecekHareketler = seciliDonem
-    ? hareketler.filter(r => r.donem === seciliDonem)
-    : hareketler
+  // Filtrelenmiş + sıralanmış hareketler
+  // Dönem seçiliyse sira sırası, değilse tarih sırası
+  const gosterilecekHareketler = (() => {
+    const base = seciliDonem
+      ? hareketler.filter(r => r.donem === seciliDonem)
+      : hareketler
+    if (!seciliDonem) return base
+    return [...base].sort((a, b) => {
+      if (a.sira != null && b.sira != null) return a.sira - b.sira
+      if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
+      return a.sira != null ? -1 : 1
+    })
+  })()
+
+  const hareketSiralamaAktif = !!seciliDonem
+  const seciliHareketIdx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
+
+  const siraYenileHareket = async (siraliListe) => {
+    await Promise.all(
+      siraliListe.map((r, i) =>
+        supabase.from('borc_kalemler').update({ sira: i }).eq('id', r.id)
+      )
+    )
+    yukleDetay(seciliHesap.id)
+  }
+
+  const yukariTasiHareket = async () => {
+    const idx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
+    if (idx <= 0) return
+    const yeni = [...gosterilecekHareketler]
+    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
+    await siraYenileHareket(yeni)
+  }
+
+  const asagiTasiHareket = async () => {
+    const idx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
+    if (idx < 0 || idx >= gosterilecekHareketler.length - 1) return
+    const yeni = [...gosterilecekHareketler]
+    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
+    await siraYenileHareket(yeni)
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
@@ -1488,57 +1529,134 @@ export default function BorcAlacak() {
           )}
 
           {/* Hareket Geçmişi */}
-          <p className="text-xs font-semibold text-slate-500 mb-2 px-1">
-            📝 Hareketler {seciliDonem ? `— ${donemLabel(seciliDonem)}` : ''}
-          </p>
+          <div className="flex items-center justify-between mb-2 px-0.5">
+            <p className="text-xs font-semibold text-slate-500">
+              📝 Hareketler {seciliDonem ? `— ${donemLabel(seciliDonem)}` : ''}
+            </p>
+          </div>
           {gosterilecekHareketler.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-sm">Bu dönemde hareket yok.</div>
           ) : (
-            <div className="space-y-2">
-              {gosterilecekHareketler.map(r => (
-                <div key={r.id} className={`rounded-xl px-4 py-3 shadow-sm border flex items-center gap-3 transition-colors ${r.odendi ? 'bg-green-50 border-green-100' : 'bg-white border-slate-100'}`}>
-                  <div className={`w-2 h-8 rounded-full flex-shrink-0 ${r.odendi ? 'bg-green-300' : r.tutar > 0 ? 'bg-red-400' : 'bg-green-400'}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-sm font-medium truncate ${r.odendi ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                        {r.aciklama || (r.tur === 'ekstre' ? 'Ekstre' : r.tur === 'taksit' ? 'Taksit' : r.tur === 'al' ? 'Alındı' : 'Ödendi')}
-                      </span>
-                      {r.kategori && (
-                        <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full flex-shrink-0">{r.kategori}</span>
+            <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
+                    <th className="text-left px-3 py-2.5 font-semibold w-[84px]">Tarih</th>
+                    <th className="text-left px-3 py-2.5 font-semibold">Açıklama</th>
+                    {seciliHesap?.tip === 'kk' && (
+                      <th className="text-center px-2 py-2.5 font-semibold w-8">✓</th>
+                    )}
+                    <th className="text-right px-3 py-2.5 font-semibold w-24">Tutar</th>
+                    <th className="w-16 pr-2">
+                      {hareketSiralamaAktif && (
+                        <div className="flex gap-0.5 justify-end">
+                          <button onClick={yukariTasiHareket}
+                            disabled={!seciliHareketId || seciliHareketIdx <= 0}
+                            className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 disabled:opacity-30 flex items-center justify-center transition-colors">
+                            <ChevronUp size={13} />
+                          </button>
+                          <button onClick={asagiTasiHareket}
+                            disabled={!seciliHareketId || seciliHareketIdx >= gosterilecekHareketler.length - 1}
+                            className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 disabled:opacity-30 flex items-center justify-center transition-colors">
+                            <ChevronDown size={13} />
+                          </button>
+                        </div>
                       )}
-                      {r.taksit_no && (
-                        <span className="text-xs bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full flex-shrink-0">
-                          {r.taksit_no}/{r.taksit_toplam}
-                        </span>
-                      )}
-                      {r.odendi && (
-                        <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full flex-shrink-0">✓ Ödendi</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-400">{formatTarih(r.tarih)}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className={`text-sm font-bold ${r.odendi ? 'text-slate-400' : r.tutar > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                      {r.tutar > 0 ? '+' : ''}{sembol}{formatPara(Math.abs(r.tutar))}
-                    </p>
-                  </div>
-                  {seciliHesap?.tip === 'kk' && (
-                    <button onClick={() => toggleOdendi(r.id, r.odendi)}
-                      title={r.odendi ? 'Ödenmedi olarak işaretle' : 'Ödendi olarak işaretle'}
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'}`}>
-                      {r.odendi && <span className="text-xs leading-none">✓</span>}
-                    </button>
-                  )}
-                  <button onClick={() => setDuzenleKalem(r)}
-                    className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors flex-shrink-0">
-                    <Pencil size={14} />
-                  </button>
-                  <button onClick={() => silHareket(r.id)}
-                    className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors flex-shrink-0">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gosterilecekHareketler.map(r => {
+                    const isSecili = r.id === seciliHareketId
+                    const aciklama = r.aciklama || (r.tur === 'ekstre' ? 'Ekstre' : r.tur === 'taksit' ? 'Taksit' : r.tur === 'al' ? 'Alındı' : 'Ödendi')
+                    return (
+                      <tr key={r.id}
+                        onClick={() => hareketSiralamaAktif && setSeciliHareketId(id => id === r.id ? null : r.id)}
+                        className={`border-b border-slate-50 last:border-0 transition-colors ${
+                          hareketSiralamaAktif ? 'cursor-pointer' : ''
+                        } ${isSecili ? 'bg-amber-50' : r.odendi ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-slate-50'}`}>
+                        {/* Tarih + sol kenar */}
+                        <td className={`pl-3 pr-2 py-2 whitespace-nowrap border-l-2 ${
+                          isSecili ? 'text-amber-700 border-amber-400' :
+                          r.odendi ? 'text-slate-400 border-green-300' :
+                          r.tutar > 0 ? 'text-slate-400 border-red-400' : 'text-slate-400 border-green-400'
+                        }`}>
+                          {formatTarih(r.tarih)}
+                        </td>
+                        {/* Açıklama + badges */}
+                        <td className="px-3 py-2">
+                          <span className={`font-medium ${
+                            isSecili ? 'text-amber-800' :
+                            r.odendi ? 'text-slate-400 line-through' :
+                            r.tutar > 0 ? 'text-slate-700' : 'text-green-700'
+                          }`}>
+                            {aciklama}
+                          </span>
+                          <span className="ml-1.5 inline-flex gap-1 flex-wrap">
+                            {r.kategori && (
+                              <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{r.kategori}</span>
+                            )}
+                            {r.taksit_no && (
+                              <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full">
+                                {r.taksit_no}/{r.taksit_toplam}
+                              </span>
+                            )}
+                            {r.odendi && (
+                              <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">✓</span>
+                            )}
+                          </span>
+                        </td>
+                        {/* Ödendi checkbox (sadece KK) */}
+                        {seciliHesap?.tip === 'kk' && (
+                          <td className="px-2 py-2 text-center" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => toggleOdendi(r.id, r.odendi)}
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mx-auto transition-colors ${
+                                r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'
+                              }`}>
+                              {r.odendi && <span className="text-[10px] leading-none">✓</span>}
+                            </button>
+                          </td>
+                        )}
+                        {/* Tutar */}
+                        <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${
+                          isSecili ? 'text-amber-700' :
+                          r.odendi ? 'text-slate-400' :
+                          r.tutar > 0 ? 'text-red-500' : 'text-green-600'
+                        }`}>
+                          {r.tutar > 0 ? '+' : ''}{sembol}{formatPara(Math.abs(r.tutar))}
+                        </td>
+                        {/* Aksiyonlar */}
+                        <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                          <div className="flex gap-0.5 justify-end">
+                            <button onClick={() => setDuzenleKalem(r)}
+                              className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
+                              <Pencil size={12} />
+                            </button>
+                            <button onClick={() => silHareket(r.id)}
+                              className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 border-t border-slate-200">
+                    <td colSpan={seciliHesap?.tip === 'kk' ? 3 : 2} className="px-3 py-2 text-slate-400">
+                      {gosterilecekHareketler.length} kayıt
+                    </td>
+                    <td className={`px-3 py-2 text-right font-bold ${
+                      gosterilecekHareketler.filter(r => !r.odendi).reduce((s, r) => s + r.tutar, 0) > 0
+                        ? 'text-red-500' : 'text-green-600'
+                    }`}>
+                      {sembol}{formatPara(Math.abs(gosterilecekHareketler.filter(r => !r.odendi).reduce((s, r) => s + r.tutar, 0)))}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
         </>
