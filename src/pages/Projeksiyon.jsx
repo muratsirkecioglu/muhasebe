@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { formatPara } from '../db'
 import { useMask } from '../MaskContext'
@@ -373,23 +373,28 @@ export default function Projeksiyon() {
   }
 
   // ── Projeksiyon özeti (dövize göre) ──────────────────────────────────────
-  const projeksiyonMap = {}
-  for (const k of kalemler.filter(k => k.aktif)) {
-    const d = k.doviz_cinsi || 'TL'
-    if (!projeksiyonMap[d]) projeksiyonMap[d] = { gelir: 0, gider: 0 }
-    const aylik = aylikEsde(k)
-    if (k.tip === 'gelir') projeksiyonMap[d].gelir += aylik
-    else                   projeksiyonMap[d].gider += aylik
-  }
-  // KK yükümlülüklerini gider tarafına ekle
-  for (const [d, tutar] of Object.entries(kkOzet.ekstre)) {
-    if (!projeksiyonMap[d]) projeksiyonMap[d] = { gelir: 0, gider: 0 }
-    projeksiyonMap[d].gider += tutar
-  }
-  for (const [d, tutar] of Object.entries(kkOzet.taksit)) {
-    if (!projeksiyonMap[d]) projeksiyonMap[d] = { gelir: 0, gider: 0 }
-    projeksiyonMap[d].gider += tutar
-  }
+  const projeksiyonMap = useMemo(() => {
+    const map = {}
+    // Sabit kalemler
+    for (const k of kalemler.filter(k => k.aktif)) {
+      const d = k.doviz_cinsi || 'TL'
+      if (!map[d]) map[d] = { gelir: 0, gider: 0 }
+      const aylik = aylikEsde(k)
+      if (k.tip === 'gelir') map[d].gelir += aylik
+      else                   map[d].gider += aylik
+    }
+    // KK ekstre kesilmemiş harcamalar → gider
+    for (const [d, tutar] of Object.entries(kkOzet.ekstre)) {
+      if (!map[d]) map[d] = { gelir: 0, gider: 0 }
+      map[d].gider += Number(tutar) || 0
+    }
+    // Bu ayın taksitleri → gider
+    for (const [d, tutar] of Object.entries(kkOzet.taksit)) {
+      if (!map[d]) map[d] = { gelir: 0, gider: 0 }
+      map[d].gider += Number(tutar) || 0
+    }
+    return map
+  }, [kalemler, kkOzet])
 
   if (yukleniyor) return (
     <div className="flex items-center justify-center h-64">
