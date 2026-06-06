@@ -221,6 +221,97 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
   )
 }
 
+// --- Taksit Grubu Düzenleme Formu ---
+function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayit }) {
+  const sembol = SEMBOL[doviz_cinsi] || doviz_cinsi
+  const [taksitler, setTaksitler] = useState([])
+  const [yukleniyor, setYukleniyor] = useState(true)
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  useEffect(() => {
+    supabase.from('borc_kalemler')
+      .select('*')
+      .eq('grup_id', grupId)
+      .order('taksit_no', { ascending: true })
+      .then(({ data }) => {
+        setTaksitler((data || []).map(r => ({
+          ...r,
+          _tutar: String(Math.abs(r.tutar || 0)),
+          _tarih: r.tarih ? String(r.tarih).split('T')[0] : '',
+        })))
+        setYukleniyor(false)
+      })
+  }, [grupId])
+
+  const guncelle = (idx, alan, deger) => {
+    setTaksitler(t => { const y = [...t]; y[idx] = { ...y[idx], [alan]: deger }; return y })
+  }
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    setKaydediliyor(true)
+    await Promise.all(taksitler.map(r =>
+      supabase.from('borc_kalemler').update({
+        tarih: r._tarih,
+        tutar: (parseFloat(r._tutar) || 0),
+        odendi: r.odendi,
+      }).eq('id', r.id)
+    ))
+    onKayit(); onKapat()
+  }
+
+  const toplamTutar = taksitler.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]">
+        <div className="p-5 border-b border-slate-100 flex-shrink-0">
+          <h3 className="font-semibold text-slate-800">✏️ Taksitleri Düzenle</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {taksitler.length} taksit · Toplam {sembol}{formatPara(toplamTutar)}
+          </p>
+        </div>
+
+        {yukleniyor ? (
+          <div className="flex justify-center py-10">
+            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <form onSubmit={kaydet} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-5 space-y-2">
+              {taksitler.map((r, i) => (
+                <div key={r.id} className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 transition-colors ${r.odendi ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                  {/* Ödendi checkbox */}
+                  <button type="button" onClick={() => guncelle(i, 'odendi', !r.odendi)}
+                    className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${r.odendi ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300'}`}>
+                    {r.odendi && <span className="text-xs leading-none">✓</span>}
+                  </button>
+                  {/* Taksit no + ay */}
+                  <span className="text-xs text-slate-500 w-10 flex-shrink-0 text-center font-medium">{r.taksit_no}/{r.taksit_toplam}</span>
+                  {/* Tarih */}
+                  <TarihInput value={r._tarih} onChange={v => guncelle(i, '_tarih', v)}
+                    className="w-24 flex-shrink-0 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white" />
+                  {/* Tutar */}
+                  <input type="number" step="0.01" min="0" value={r._tutar}
+                    onChange={e => guncelle(i, '_tutar', e.target.value)}
+                    className={`flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white ${r.odendi ? 'line-through text-slate-400' : ''}`} />
+                  <span className="text-xs text-slate-400 flex-shrink-0">{sembol}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-5 border-t border-slate-100 flex gap-3 flex-shrink-0">
+              <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+              <button type="submit" disabled={kaydediliyor} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+                {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // --- Kişi: Al / Öde Formu ---
 function AlOdeFormu({ hesap, onKapat, onKayit }) {
   const sembol = SEMBOL[hesap.doviz_cinsi] || hesap.doviz_cinsi
@@ -1268,8 +1359,15 @@ export default function BorcAlacak() {
           onKayit={() => { setDuzenleHarcama(null); yukleDetay(seciliHesap.id) }} />
       )}
       {duzenleKalem && seciliHesap && (
-        <KalemDuzenleFormu kalem={duzenleKalem} doviz_cinsi={seciliHesap.doviz_cinsi}
-          onKapat={() => setDuzenleKalem(null)} onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id) }} />
+        duzenleKalem.tur === 'taksit' && duzenleKalem.grup_id
+          ? <TaksitGrubuDuzenleFormu
+              grupId={duzenleKalem.grup_id}
+              hesapId={seciliHesap.id}
+              doviz_cinsi={seciliHesap.doviz_cinsi}
+              onKapat={() => setDuzenleKalem(null)}
+              onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id) }} />
+          : <KalemDuzenleFormu kalem={duzenleKalem} doviz_cinsi={seciliHesap.doviz_cinsi}
+              onKapat={() => setDuzenleKalem(null)} onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id) }} />
       )}
       {form === 'alode' && seciliHesap?.tip === 'kisi' && (
         <AlOdeFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={yenile} />
