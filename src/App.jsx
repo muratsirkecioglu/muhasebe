@@ -6,19 +6,17 @@ import { MaskProvider, useMask } from './MaskContext'
 import { ThemeProvider, useTheme } from './ThemeContext'
 import { supabase } from './supabase'
 import Dashboard from './pages/Dashboard'
-import Islemler from './pages/Islemler'
+import HesapIslemler from './pages/HesapIslemler'
 import Birikim from './pages/Birikim'
 import BorcAlacak from './pages/BorcAlacak'
 import Import from './pages/Import'
 import AracMasraf from './pages/AracMasraf'
 import Login from './pages/Login'
-import Hesap from './pages/Hesap'
 import Projeksiyon from './pages/Projeksiyon'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/hesap', icon: BookOpen, label: 'Hesap' },
-  { to: '/islemler', icon: ArrowLeftRight, label: 'İşlemler' },
   { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
   { to: '/projeksiyon', icon: BarChart2, label: 'Projeksiyon' },
@@ -158,8 +156,7 @@ function AppShell() {
         <main className="flex-1 md:ml-56 pb-20 md:pb-0">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/hesap" element={<Hesap />} />
-            <Route path="/islemler" element={<Islemler />} />
+            <Route path="/hesap" element={<HesapIslemler />} />
             <Route path="/birikim" element={<Birikim />} />
             <Route path="/borc" element={<BorcAlacak />} />
             <Route path="/projeksiyon" element={<Projeksiyon />} />
