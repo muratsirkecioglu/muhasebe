@@ -116,7 +116,7 @@ export default function Dashboard() {
   const [bakiye, setBakiye] = useState({ K: 0, N: 0, TL: 0 })
   const [baslangic, setBaslangic] = useState({ banka: 0, nakit: 0 })
   const [birikimOzet, setBirikimOzet] = useState({})
-  const [borcOzet, setBorcOzet] = useState({ kkBorcu: 0, kisiBorc: 0, kisiAlacak: 0 })
+  const [borcOzet, setBorcOzet] = useState({}) // { [doviz]: { kkBorcu, kisiBorc, kisiAlacak } }
   const [transfer, setTransfer] = useState(false)
   const [baslangicFormu, setBaslangicFormu] = useState(false)
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -183,32 +183,41 @@ export default function Dashboard() {
     setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })
     setBirikimOzet(ozet)
 
-    // Borç/Alacak özet
+    // Borç/Alacak özet — dövize göre gruplandırılmış
     const bHesaplar = borcHesaplarRes.data || []
     const bKalemler = borcKalemlerRes.data || []
     const bHarcamalar = borcHarcamalarRes.data || []
-    const kkHesaplar = bHesaplar.filter(h => h.tip === 'kk')
-    const kisiHesaplar = bHesaplar.filter(h => h.tip === 'kisi')
 
-    const kkBorcu = kkHesaplar.reduce((sum, h) => {
+    const borcOzetMap = {}
+    const ensureKey = (doviz) => {
+      if (!borcOzetMap[doviz]) borcOzetMap[doviz] = { kkBorcu: 0, kisiBorc: 0, kisiAlacak: 0 }
+    }
+
+    // KK hesaplar
+    for (const h of bHesaplar.filter(h => h.tip === 'kk')) {
+      const doviz = h.doviz_cinsi || 'TL'
+      ensureKey(doviz)
       const kalemBorcu = bKalemler
         .filter(k => k.hesap_id === h.id && !k.odendi)
         .reduce((s, k) => s + (k.tutar || 0), 0)
       const bekleyenHarcama = bHarcamalar
         .filter(r => r.hesap_id === h.id && !r.ekstre_kesildi)
         .reduce((s, r) => s + (r.tutar || 0), 0)
-      return sum + kalemBorcu + bekleyenHarcama
-    }, 0)
+      borcOzetMap[doviz].kkBorcu += kalemBorcu + bekleyenHarcama
+    }
 
-    let kisiBorc = 0, kisiAlacak = 0
-    for (const h of kisiHesaplar) {
+    // Kişi hesaplar
+    for (const h of bHesaplar.filter(h => h.tip === 'kisi')) {
+      const doviz = h.doviz_cinsi || 'TL'
+      ensureKey(doviz)
       const bak = bKalemler
         .filter(k => k.hesap_id === h.id)
         .reduce((s, k) => s + (k.tutar || 0), 0)
-      if (bak > 0) kisiBorc += bak
-      else if (bak < 0) kisiAlacak += Math.abs(bak)
+      if (bak > 0) borcOzetMap[doviz].kisiBorc += bak
+      else if (bak < 0) borcOzetMap[doviz].kisiAlacak += Math.abs(bak)
     }
-    setBorcOzet({ kkBorcu, kisiBorc, kisiAlacak })
+
+    setBorcOzet(borcOzetMap)
 
     setYukleniyor(false)
   }
@@ -301,45 +310,47 @@ export default function Dashboard() {
       </div>
 
       {/* Borç & Alacak */}
-      {(borcOzet.kkBorcu > 0 || borcOzet.kisiBorc > 0 || borcOzet.kisiAlacak > 0) && (
+      {Object.keys(borcOzet).length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Borç & Alacak</h2>
-          <div className="grid grid-cols-3 gap-2">
-
-            {/* Kredi Kartı Borcu */}
-            <div className="rounded-2xl p-4 border bg-purple-50 border-purple-100">
-              <div className="flex items-center gap-1.5 mb-2">
-                <CreditCard size={13} className="text-purple-400" />
-                <p className="text-xs font-semibold text-purple-500">KK Borcu</p>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            {/* Başlık satırı */}
+            <div className="grid grid-cols-4 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-400">
+              <div className="px-4 py-2.5">Para Birimi</div>
+              <div className="px-3 py-2.5 text-right flex items-center justify-end gap-1">
+                <CreditCard size={11} /> KK Borcu
               </div>
-              <p className="text-lg font-bold text-purple-700 leading-tight">₺{formatPara(borcOzet.kkBorcu)}</p>
+              <div className="px-3 py-2.5 text-right flex items-center justify-end gap-1">
+                <TrendingDown size={11} /> Borcum
+              </div>
+              <div className="px-3 py-2.5 text-right flex items-center justify-end gap-1">
+                <TrendingUp size={11} /> Alacağım
+              </div>
             </div>
 
-            {/* Borcum (kişilere) */}
-            <div className="rounded-2xl p-4 border bg-red-50 border-red-100">
-              <div className="flex items-center gap-1.5 mb-2">
-                <TrendingDown size={13} className="text-red-400" />
-                <p className="text-xs font-semibold text-red-500">Borcum</p>
-              </div>
-              <p className="text-lg font-bold text-red-600 leading-tight">₺{formatPara(borcOzet.kisiBorc)}</p>
-            </div>
-
-            {/* Alacağım (kişilerden) */}
-            <div className="rounded-2xl p-4 border bg-green-50 border-green-100">
-              <div className="flex items-center gap-1.5 mb-2">
-                <TrendingUp size={13} className="text-green-500" />
-                <p className="text-xs font-semibold text-green-600">Alacağım</p>
-              </div>
-              <p className="text-lg font-bold text-green-700 leading-tight">₺{formatPara(borcOzet.kisiAlacak)}</p>
-            </div>
-
-          </div>
-          {/* Net özet */}
-          <div className="mt-2 rounded-xl px-4 py-2.5 bg-slate-100 flex justify-between items-center">
-            <span className="text-xs text-slate-500">Toplam Yükümlülük (KK + Borç)</span>
-            <span className="text-sm font-bold text-slate-700">
-              ₺{formatPara(borcOzet.kkBorcu + borcOzet.kisiBorc)}
-            </span>
+            {/* Döviz satırları */}
+            {(['TL','USD','EUR','GBP','ALT','GMS']).filter(d => borcOzet[d]).map(doviz => {
+              const { kkBorcu, kisiBorc, kisiAlacak } = borcOzet[doviz]
+              const SEM = { TL:'₺', USD:'$', EUR:'€', GBP:'£', ALT:'gr ALT', GMS:'gr GMS' }
+              const sem = SEM[doviz] || doviz
+              const fmt = (v) => doviz === 'ALT' || doviz === 'GMS'
+                ? `${formatPara(v)} ${doviz === 'ALT' ? 'gr' : 'gr'}`
+                : `${sem}${formatPara(v)}`
+              return (
+                <div key={doviz} className="grid grid-cols-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <div className="px-4 py-3 font-bold text-sm text-slate-700">{doviz}</div>
+                  <div className="px-3 py-3 text-right text-sm font-bold text-purple-600">
+                    {kkBorcu > 0 ? fmt(kkBorcu) : <span className="text-slate-300">—</span>}
+                  </div>
+                  <div className="px-3 py-3 text-right text-sm font-bold text-red-500">
+                    {kisiBorc > 0 ? fmt(kisiBorc) : <span className="text-slate-300">—</span>}
+                  </div>
+                  <div className="px-3 py-3 text-right text-sm font-bold text-green-600">
+                    {kisiAlacak > 0 ? fmt(kisiAlacak) : <span className="text-slate-300">—</span>}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
