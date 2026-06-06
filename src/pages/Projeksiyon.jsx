@@ -381,6 +381,15 @@ export default function Projeksiyon() {
     if (k.tip === 'gelir') projeksiyonMap[d].gelir += aylik
     else                   projeksiyonMap[d].gider += aylik
   }
+  // KK yükümlülüklerini gider tarafına ekle
+  for (const [d, tutar] of Object.entries(kkOzet.ekstre)) {
+    if (!projeksiyonMap[d]) projeksiyonMap[d] = { gelir: 0, gider: 0 }
+    projeksiyonMap[d].gider += tutar
+  }
+  for (const [d, tutar] of Object.entries(kkOzet.taksit)) {
+    if (!projeksiyonMap[d]) projeksiyonMap[d] = { gelir: 0, gider: 0 }
+    projeksiyonMap[d].gider += tutar
+  }
 
   if (yukleniyor) return (
     <div className="flex items-center justify-center h-64">
