@@ -1078,16 +1078,8 @@ export default function BorcAlacak() {
       + (seciliDonem === buAy ? bekleyenToplam : 0)
     : guncelBorc
 
-  // Dönem listesi (hareketlerdeki + 12 ay ileri)
-  const donemler = (() => {
-    const set = new Set(hareketler.map(r => r.donem).filter(Boolean))
-    const now = new Date()
-    for (let i = 1; i <= 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
-      set.add(d.getFullYear() * 100 + d.getMonth() + 1)
-    }
-    return Array.from(set).sort((a, b) => a - b)
-  })()
+  // Dönem listesi — sadece kayıt olan dönemler
+  const donemler = [...new Set(hareketler.map(r => r.donem).filter(Boolean))].sort((a, b) => a - b)
 
   const donemLabel = (d) => {
     const y = Math.floor(d / 100), m = d % 100
