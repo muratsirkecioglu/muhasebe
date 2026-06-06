@@ -602,7 +602,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     tutar: '',
     kategori: GIDER_KATEGORILER[0],
     aciklama: '',
-    harcama_tipi: 'pesin',
+    harcama_tipi: 'taksitli',
     taksit_sayisi: '2',
   })
   const [taksitler, setTaksitler] = useState(['', ''])
