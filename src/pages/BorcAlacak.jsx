@@ -1072,6 +1072,11 @@ export default function BorcAlacak() {
     .filter(r => !r.odendi && r.donem === buAy)
     .reduce((s, r) => s + (r.tutar || 0), 0) + bekleyenToplam
   const toplamBorc = bakiye + bekleyenToplam
+  // Seçili dönem borcu (gelecek dönemde bekleyen harcamalar dahil edilmez)
+  const secilenDonemBorc = seciliDonem
+    ? hareketler.filter(r => !r.odendi && r.donem === seciliDonem).reduce((s, r) => s + (r.tutar || 0), 0)
+      + (seciliDonem === buAy ? bekleyenToplam : 0)
+    : guncelBorc
 
   // Dönem listesi (hareketlerdeki + 12 ay ileri)
   const donemler = (() => {
@@ -1287,9 +1292,13 @@ export default function BorcAlacak() {
               /* KK: Güncel borç + Toplam borç */
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white rounded-xl p-3 border border-purple-100">
-                  <p className="text-xs text-slate-400 mb-1">Bu Ay Borcu</p>
-                  <p className="text-lg font-bold text-purple-700">{sembol}{formatPara(guncelBorc)}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Taksit + Bekleyen</p>
+                  <p className="text-xs text-slate-400 mb-1">
+                    {seciliDonem && seciliDonem !== buAy ? donemLabel(seciliDonem) : 'Bu Ay'}
+                  </p>
+                  <p className="text-lg font-bold text-purple-700">{sembol}{formatPara(secilenDonemBorc)}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {seciliDonem && seciliDonem !== buAy ? 'Sadece taksitler' : 'Taksit + Bekleyen'}
+                  </p>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-purple-100">
                   <p className="text-xs text-slate-400 mb-1">Toplam Borç</p>
