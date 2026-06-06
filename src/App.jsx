@@ -1,5 +1,5 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen, Eye, EyeOff, Moon, Sun } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen, Eye, EyeOff, Moon, Sun, BarChart2 } from 'lucide-react'
 import CoinIcon from './components/CoinIcon'
 import { AuthProvider, useAuth } from './AuthContext'
 import { MaskProvider, useMask } from './MaskContext'
@@ -13,6 +13,7 @@ import Import from './pages/Import'
 import AracMasraf from './pages/AracMasraf'
 import Login from './pages/Login'
 import Hesap from './pages/Hesap'
+import Projeksiyon from './pages/Projeksiyon'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/islemler', icon: ArrowLeftRight, label: 'İşlemler' },
   { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
+  { to: '/projeksiyon', icon: BarChart2, label: 'Projeksiyon' },
   { to: '/arac', icon: Car, label: 'Araç' },
   { to: '/import', icon: Upload, label: 'Import' },
 ]
@@ -160,6 +162,7 @@ function AppShell() {
             <Route path="/islemler" element={<Islemler />} />
             <Route path="/birikim" element={<Birikim />} />
             <Route path="/borc" element={<BorcAlacak />} />
+            <Route path="/projeksiyon" element={<Projeksiyon />} />
             <Route path="/arac" element={<AracMasraf />} />
             <Route path="/import" element={<Import />} />
           </Routes>
