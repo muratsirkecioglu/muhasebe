@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, formatTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
-import { Plus, Trash2, Pencil } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import { useMask } from '../MaskContext'
 
@@ -228,22 +228,29 @@ export default function Islemler() {
   const [duzenle, setDuzenle] = useState(null)
   const [islemler, setIslemler] = useState([])
   const [yukleniyor, setYukleniyor] = useState(true)
+  const [seciliSatirId, setSeciliSatirId] = useState(null)
 
   const yukle = useCallback(async () => {
     setYukleniyor(true)
     const [{ data: gel }, { data: gid }] = await Promise.all([
-      supabase.from('gelirler').select('*').eq('donem', donem).order('tarih', { ascending: false }),
-      supabase.from('giderler').select('*').eq('donem', donem).order('tarih', { ascending: false }),
+      supabase.from('gelirler').select('*').eq('donem', donem).order('sira', { ascending: true, nullsFirst: false }).order('tarih', { ascending: false }),
+      supabase.from('giderler').select('*').eq('donem', donem).order('sira', { ascending: true, nullsFirst: false }).order('tarih', { ascending: false }),
     ])
     const birlesik = [
       ...(gel || []).map(r => ({ ...r, _tur: 'gelir', _tablo: 'gelirler', kategori: r.tur })),
       ...(gid || []).map(r => ({ ...r, _tur: 'gider', _tablo: 'giderler' })),
-    ].sort((a, b) => new Date(b.tarih) - new Date(a.tarih))
+    ].sort((a, b) => {
+      if (a.sira != null && b.sira != null) return a.sira - b.sira
+      if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
+      return a.sira != null ? -1 : 1
+    })
     setIslemler(birlesik)
     setYukleniyor(false)
   }, [donem])
 
   useEffect(() => { yukle() }, [yukle])
+  // Dönem değişince seçimi sıfırla
+  useEffect(() => { setSeciliSatirId(null) }, [donem])
 
   const DONEMLER = donemListesi()
 
@@ -256,6 +263,36 @@ export default function Islemler() {
     }
     yukle()
   }
+
+  // Her öğeye 0,1,2,… sıra numarası yaz — iki farklı tabloya güncelleme yapılır
+  const siraYenile = async (siraliListe) => {
+    await Promise.all(
+      siraliListe.map((r, i) =>
+        supabase.from(r._tablo).update({ sira: i }).eq('id', r.id)
+      )
+    )
+    yukle()
+  }
+
+  const satirKey = (r) => `${r._tablo}-${r.id}`
+
+  const yukariTasi = async () => {
+    const idx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
+    if (idx <= 0) return
+    const yeni = [...islemler]
+    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
+    await siraYenile(yeni)
+  }
+
+  const asagiTasi = async () => {
+    const idx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
+    if (idx < 0 || idx >= islemler.length - 1) return
+    const yeni = [...islemler]
+    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
+    await siraYenile(yeni)
+  }
+
+  const seciliIdx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
 
   const toplamGelir = islemler.filter(r => r._tur === 'gelir').reduce((s, r) => s + (r.k || 0), 0)
   const toplamGider = islemler.filter(r => r._tur === 'gider').reduce((s, r) => s + (r.k || 0), 0)
@@ -323,61 +360,88 @@ export default function Islemler() {
                 <th className="text-left px-3 py-2.5 font-semibold hidden sm:table-cell">Açıklama</th>
                 <th className="text-center px-2 py-2.5 font-semibold w-8">H</th>
                 <th className="text-right px-3 py-2.5 font-semibold w-24">Tutar</th>
-                <th className="w-14"></th>
+                <th className="w-16 pr-2">
+                  <div className="flex gap-0.5 justify-end">
+                    <button onClick={yukariTasi}
+                      disabled={!seciliSatirId || seciliIdx <= 0}
+                      className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 disabled:opacity-30 flex items-center justify-center transition-colors">
+                      <ChevronUp size={13} />
+                    </button>
+                    <button onClick={asagiTasi}
+                      disabled={!seciliSatirId || seciliIdx >= islemler.length - 1}
+                      className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 disabled:opacity-30 flex items-center justify-center transition-colors">
+                      <ChevronDown size={13} />
+                    </button>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {islemler.map(r => (
-                <tr key={`${r._tablo}-${r.id}`}
-                  className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                  {/* Tarih — sol kenar rengi ile tür göstergesi */}
-                  <td className={`pl-3 pr-2 py-2 text-slate-400 whitespace-nowrap border-l-2 ${r._tur === 'gelir' ? 'border-green-400' : 'border-red-400'}`}>
-                    {formatTarih(r.tarih)}
-                  </td>
-                  {/* Kategori + mobile açıklama */}
-                  <td className="px-3 py-2">
-                    <span className={`font-semibold ${r._tur === 'gelir' ? 'text-green-700' : 'text-slate-700'}`}>
-                      {r.kategori}
-                    </span>
-                    {r.aciklama && (
-                      <span className="block text-[10px] text-slate-400 truncate max-w-[110px] sm:hidden mt-0.5">
-                        {r.aciklama}
-                      </span>
-                    )}
-                  </td>
-                  {/* Açıklama — sadece geniş ekranda */}
-                  <td className="px-3 py-2 text-slate-400 max-w-[140px] truncate hidden sm:table-cell">
-                    {r.aciklama || <span className="text-slate-300">—</span>}
-                  </td>
-                  {/* Hesap */}
-                  <td className="px-2 py-2 text-center">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                      r.hesap === 'N'
-                        ? 'bg-slate-100 text-slate-500'
-                        : 'bg-blue-50 text-blue-500'
+              {islemler.map(r => {
+                const key = satirKey(r)
+                const isSecili = key === seciliSatirId
+                return (
+                  <tr key={key}
+                    onClick={() => setSeciliSatirId(id => id === key ? null : key)}
+                    className={`border-b border-slate-50 last:border-0 cursor-pointer transition-colors ${
+                      isSecili ? 'bg-amber-50 border-amber-100' : 'hover:bg-slate-50'
                     }`}>
-                      {r.hesap === 'N' ? 'N' : 'B'}
-                    </span>
-                  </td>
-                  {/* Tutar */}
-                  <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'}`}>
-                    {r._tur === 'gelir' ? '+' : '-'}₺{maskeli && r.kategori === 'Maaş' ? '••••' : formatPara(r.k)}
-                  </td>
-                  {/* Aksiyonlar */}
-                  <td className="px-2 py-1.5">
-                    <div className="flex gap-0.5 justify-end">
-                      <button onClick={() => setDuzenle(r)}
-                        className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
-                        <Pencil size={12} />
-                      </button>
-                      <button onClick={() => sil(r._tablo, r.id)}
-                        className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    {/* Tarih — sol kenar rengi ile tür göstergesi */}
+                    <td className={`pl-3 pr-2 py-2 whitespace-nowrap border-l-2 ${
+                      isSecili ? 'text-amber-700 border-amber-400' :
+                      r._tur === 'gelir' ? 'text-slate-400 border-green-400' : 'text-slate-400 border-red-400'
+                    }`}>
+                      {formatTarih(r.tarih)}
+                    </td>
+                    {/* Kategori + mobile açıklama */}
+                    <td className="px-3 py-2">
+                      <span className={`font-semibold ${
+                        isSecili ? 'text-amber-800' :
+                        r._tur === 'gelir' ? 'text-green-700' : 'text-slate-700'
+                      }`}>
+                        {r.kategori}
+                      </span>
+                      {r.aciklama && (
+                        <span className="block text-[10px] text-slate-400 truncate max-w-[110px] sm:hidden mt-0.5">
+                          {r.aciklama}
+                        </span>
+                      )}
+                    </td>
+                    {/* Açıklama — sadece geniş ekranda */}
+                    <td className="px-3 py-2 text-slate-400 max-w-[140px] truncate hidden sm:table-cell">
+                      {r.aciklama || <span className="text-slate-300">—</span>}
+                    </td>
+                    {/* Hesap */}
+                    <td className="px-2 py-2 text-center">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        r.hesap === 'N' ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-500'
+                      }`}>
+                        {r.hesap === 'N' ? 'N' : 'B'}
+                      </span>
+                    </td>
+                    {/* Tutar */}
+                    <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${
+                      isSecili ? 'text-amber-700' :
+                      r._tur === 'gelir' ? 'text-green-600' : 'text-red-500'
+                    }`}>
+                      {r._tur === 'gelir' ? '+' : '-'}₺{maskeli && r.kategori === 'Maaş' ? '••••' : formatPara(r.k)}
+                    </td>
+                    {/* Aksiyonlar */}
+                    <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-0.5 justify-end">
+                        <button onClick={() => setDuzenle(r)}
+                          className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
+                          <Pencil size={12} />
+                        </button>
+                        <button onClick={() => sil(r._tablo, r.id)}
+                          className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
             <tfoot>
               <tr className="bg-slate-50 border-t border-slate-200">
