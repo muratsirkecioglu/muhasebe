@@ -7,6 +7,17 @@ import TarihInput from '../components/TarihInput'
 const KATEGORILER = ['Yakıt', 'HGS', 'Otopark', 'Yıkama', 'Sigorta', 'MTV', 'Servis', 'Lastik', 'Diğer']
 const IKONLAR = { Yakıt: Fuel, Otopark: ParkingCircle, Yıkama: Waves }
 
+// İşlemler ekranı, giderler+gelirler'i dönem bazında birleşik liste olarak gösterip
+// sira'yı bu havuz üzerinden yönetiyor — yeni kayıt iki tabloda görülen en yüksek
+// sira değerinden bir fazlasını alır (en üstte görünür, mevcut kayıtlar update görmez).
+async function islemSiraGetir(donem) {
+  const [{ data: gel }, { data: gid }] = await Promise.all([
+    supabase.from('gelirler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
+    supabase.from('giderler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
+  ])
+  return Math.max(gel?.[0]?.sira ?? -1, gid?.[0]?.sira ?? -1) + 1
+}
+
 function EkleFormu({ onKapat, onKayit }) {
   const [form, setForm] = useState({ tarih: yerelTarih(new Date()), kategori: 'Yakıt', tutar: '', aciklama: '' })
   const [kaydediliyor, setKaydediliyor] = useState(false)
@@ -21,6 +32,7 @@ function EkleFormu({ onKapat, onKayit }) {
       kategori: `Araç - ${form.kategori}`,
       k: parseFloat(form.tutar) || 0,
       aciklama: form.aciklama,
+      sira: await islemSiraGetir(donem),
     })
     onKayit()
     onKapat()

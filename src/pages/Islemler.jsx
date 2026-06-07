@@ -124,6 +124,19 @@ async function birikimSiraGetir() {
   return (data?.[0]?.sira ?? -1) + 1
 }
 
+// giderler/gelirler: sira, ekranda iki tablonun BİRLEŞİK listesi (dönem bazında) üzerinden
+// scoped tutuluyor — bu yüzden yeni kaydın sira'sı, o dönemde iki tabloda da görülen en
+// büyük değerden bir fazla olmalı (aksi halde iki tablodan aynı sira değeri çıkabilir).
+// Döner: yeni kayıt o dönemin listesinde en üstte görünür, mevcut kayıtlar update görmez.
+async function islemSiraGetir(donem) {
+  const [{ data: gel }, { data: gid }] = await Promise.all([
+    supabase.from('gelirler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
+    supabase.from('giderler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
+  ])
+  const maxSira = Math.max(gel?.[0]?.sira ?? -1, gid?.[0]?.sira ?? -1)
+  return maxSira + 1
+}
+
 function IslemFormu({ tur, onKapat, onKayit }) {
   const [form, setForm] = useState({
     tarih: yerelTarih(new Date()),
@@ -139,7 +152,8 @@ function IslemFormu({ tur, onKapat, onKayit }) {
     setKaydediliyor(true)
     const tutar = parseFloat(form.k) || 0
     const donem = tarihtenDonem(form.tarih)
-    const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama }
+    const sira = await islemSiraGetir(donem)
+    const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama, sira }
 
     if (tur === 'gider') {
       const grupId = form.kategori === 'Birikim' ? crypto.randomUUID() : null
@@ -246,14 +260,14 @@ export default function Islemler() {
   const yukle = useCallback(async () => {
     setYukleniyor(true)
     const [{ data: gel }, { data: gid }] = await Promise.all([
-      supabase.from('gelirler').select('*').eq('donem', donem).order('sira', { ascending: true, nullsFirst: false }).order('tarih', { ascending: false }),
-      supabase.from('giderler').select('*').eq('donem', donem).order('sira', { ascending: true, nullsFirst: false }).order('tarih', { ascending: false }),
+      supabase.from('gelirler').select('*').eq('donem', donem).order('sira', { ascending: false, nullsFirst: false }).order('tarih', { ascending: false }),
+      supabase.from('giderler').select('*').eq('donem', donem).order('sira', { ascending: false, nullsFirst: false }).order('tarih', { ascending: false }),
     ])
     const birlesik = [
       ...(gel || []).map(r => ({ ...r, _tur: 'gelir', _tablo: 'gelirler', kategori: r.tur })),
       ...(gid || []).map(r => ({ ...r, _tur: 'gider', _tablo: 'giderler' })),
     ].sort((a, b) => {
-      if (a.sira != null && b.sira != null) return a.sira - b.sira
+      if (a.sira != null && b.sira != null) return b.sira - a.sira
       if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
       return a.sira != null ? -1 : 1
     })
@@ -282,7 +296,8 @@ export default function Islemler() {
   // İki kaydın yerini değiştirir (farklı tablolarda olabilirler).
   // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
   // - sira hiç atanmamışsa (null): ilk kullanımda, o anki görüntülenen sırayı esas alıp
-  //   (takas uygulanmış haliyle) tüm listeyi 0,1,2,… diye normalize eder.
+  //   (takas uygulanmış haliyle) tüm listeyi azalan şekilde normalize eder
+  //   (en üstteki en yüksek sira değerini alır — yeni kayıtlarla tutarlı olsun diye).
   const siraTakasEt = async (idxA, idxB) => {
     const liste = islemler
     const a = liste[idxA], b = liste[idxB]
@@ -294,8 +309,9 @@ export default function Islemler() {
     } else {
       const yeni = [...liste]
       ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
+      const n = yeni.length
       await Promise.all(
-        yeni.map((r, i) => supabase.from(r._tablo).update({ sira: i }).eq('id', r.id))
+        yeni.map((r, i) => supabase.from(r._tablo).update({ sira: n - 1 - i }).eq('id', r.id))
       )
     }
     yukle()

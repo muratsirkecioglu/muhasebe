@@ -7,6 +7,39 @@ import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr' }
 
+// borc_kalemler: sira, hesap_id + donem bazında scoped tutuluyor.
+// Verilen hesap için, listelenen dönemlerin her biri için o anki en yüksek
+// sira değerini getirir (kayıt yoksa -1). Yeni kayıtlar bu değer + 1 alır,
+// böylece son işlem her zaman o dönemin en yüksek sira'sına sahip olur.
+async function borcKalemMaxSiralar(hesapId, donemler) {
+  const benzersiz = [...new Set(donemler)]
+  const sonuc = {}
+  await Promise.all(benzersiz.map(async (donem) => {
+    const { data } = await supabase.from('borc_kalemler')
+      .select('sira').eq('hesap_id', hesapId).eq('donem', donem)
+      .order('sira', { ascending: false }).limit(1)
+    sonuc[donem] = data?.[0]?.sira ?? -1
+  }))
+  return sonuc
+}
+
+// Islemler ekranı, giderler+gelirler'i dönem bazında BİRLEŞİK liste olarak gösterip
+// sira'yı bu birleşik liste üzerinden yönetiyor. Buradan giderler tablosuna toplu kayıt
+// eklerken de aynı sira havuzunu kullanmamız gerekir (yoksa iki tablodan çakışan değerler
+// çıkabilir). Verilen dönemlerin her biri için iki tabloda görülen en yüksek sira'yı bulur.
+async function islemMaxSiralar(donemler) {
+  const benzersiz = [...new Set(donemler)]
+  const sonuc = {}
+  await Promise.all(benzersiz.map(async (donem) => {
+    const [{ data: gel }, { data: gid }] = await Promise.all([
+      supabase.from('gelirler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
+      supabase.from('giderler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
+    ])
+    sonuc[donem] = Math.max(gel?.[0]?.sira ?? -1, gid?.[0]?.sira ?? -1)
+  }))
+  return sonuc
+}
+
 // --- Hesap Ekleme Formu ---
 function HesapFormu({ onKapat, onKayit }) {
   const [form, setForm] = useState({ ad: '', tip: 'kisi', doviz_cinsi: 'TL', ekstre_gun: '', aciklama: '' })
@@ -339,6 +372,8 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           : `Taksit (${i + 1}/${taksitler.length})`,
       }
     })
+    const maxSiralar = await borcKalemMaxSiralar(hesapId, yeniKalemler.map(k => k.donem))
+    for (const kalem of yeniKalemler) kalem.sira = ++maxSiralar[kalem.donem]
     await supabase.from('borc_kalemler').insert(yeniKalemler)
     onKayit(); onKapat()
   }
@@ -438,6 +473,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
     const tutar = parseFloat(form.tutar) || 0
     const d = new Date(form.tarih)
     const donem = d.getFullYear() * 100 + d.getMonth() + 1
+    const maxSiralar = await borcKalemMaxSiralar(hesap.id, [donem])
     await supabase.from('borc_kalemler').insert({
       hesap_id: hesap.id,
       tarih: form.tarih,
@@ -445,6 +481,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
       tutar: form.tur === 'al' ? tutar : -tutar,
       aciklama: form.aciklama || null,
       tur: form.tur,
+      sira: maxSiralar[donem] + 1,
     })
     onKayit(); onKapat()
   }
@@ -666,6 +703,8 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           odendi: odendi[i] || false,
         }
       })
+      const maxSiralar = await borcKalemMaxSiralar(hesap.id, kalemler.map(k => k.donem))
+      for (const kalem of kalemler) kalem.sira = ++maxSiralar[kalem.donem]
       await supabase.from('borc_kalemler').insert(kalemler)
     } else {
       // Peşin: bekleyen listesine ekle, ekstre kesilince işlenir
@@ -803,6 +842,8 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
 
     // 1. Bekleyen peşin harcamaları borc_kalemler'e ekle + ödendi işaretle
     if (bekleyenPesin.length > 0) {
+      const maxSiralar = await borcKalemMaxSiralar(hesap.id, [donem])
+      let sonSira = maxSiralar[donem]
       const yeniKalemler = bekleyenPesin.map(h => ({
         hesap_id: hesap.id,
         tarih: bugun,
@@ -813,6 +854,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
         tur: 'ekstre',
         odendi: true,
         grup_id: crypto.randomUUID(),
+        sira: ++sonSira,
       }))
       await supabase.from('borc_kalemler').insert(yeniKalemler)
       await supabase.from('borc_harcamalar')
@@ -831,6 +873,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
 
     // 3. Hepsini giderler tablosuna ekle
     if (giderler.length > 0) {
+      const maxSiralar = await islemMaxSiralar(giderler.map(r => r.donem))
       await supabase.from('giderler').insert(giderler.map(r => ({
         tarih: r.tarih,
         donem: r.donem,
@@ -838,6 +881,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
         k: r.tutar,
         hesap: 'K',
         aciklama: `${hesap.ad}${r.aciklama ? ' · ' + r.aciklama : ''}`,
+        sira: ++maxSiralar[r.donem],
       })))
     }
 
@@ -1149,7 +1193,7 @@ export default function BorcAlacak() {
       : hareketler
     if (!seciliDonem) return base
     return [...base].sort((a, b) => {
-      if (a.sira != null && b.sira != null) return a.sira - b.sira
+      if (a.sira != null && b.sira != null) return b.sira - a.sira
       if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
       return a.sira != null ? -1 : 1
     })
@@ -1161,7 +1205,8 @@ export default function BorcAlacak() {
   // İki kaydın yerini değiştirir.
   // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
   // - sira hiç atanmamışsa (null): bu dönem için ilk kullanımda, o anki görüntülenen
-  //   sırayı esas alıp (takas uygulanmış haliyle) tüm listeyi 0,1,2,… diye normalize eder.
+  //   sırayı esas alıp (takas uygulanmış haliyle) tüm listeyi azalan şekilde normalize eder
+  //   (en üstteki en yüksek sira değerini alır — yeni kayıtlarla tutarlı olsun diye).
   const siraTakasEtHareket = async (idxA, idxB) => {
     const liste = gosterilecekHareketler
     const a = liste[idxA], b = liste[idxB]
@@ -1173,8 +1218,9 @@ export default function BorcAlacak() {
     } else {
       const yeni = [...liste]
       ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
+      const n = yeni.length
       await Promise.all(
-        yeni.map((r, i) => supabase.from('borc_kalemler').update({ sira: i }).eq('id', r.id))
+        yeni.map((r, i) => supabase.from('borc_kalemler').update({ sira: n - 1 - i }).eq('id', r.id))
       )
     }
     yukleDetay(seciliHesap.id)
