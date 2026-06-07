@@ -1014,40 +1014,38 @@ export default function BorcAlacak() {
     yukleDetay(secili.id)
   }
 
+  // Büyükten küçüğe sıralanır: en yüksek sira değeri (en yeni kayıt) en üstte görünür
   const pesinSirali = harcamalar
     .filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
-    .sort((a, b) => (a.sira ?? 0) - (b.sira ?? 0))
+    .sort((a, b) => (b.sira ?? 0) - (a.sira ?? 0))
 
-  // Tüm listeye 0,1,2,... sıra numarası yaz — eşit sira değeri sorununu önler
-  const siraYenile = async (siraliListe) => {
-    await Promise.all(
-      siraliListe.map((h, i) =>
-        supabase.from('borc_harcamalar').update({ sira: i }).eq('id', h.id)
-      )
-    )
+  // İki kaydın sira değerini takas eder — sadece bu iki satır update görür, listenin geri kalanı etkilenmez
+  const siraTakasEt = async (a, b) => {
+    await Promise.all([
+      supabase.from('borc_harcamalar').update({ sira: b.sira ?? 0 }).eq('id', a.id),
+      supabase.from('borc_harcamalar').update({ sira: a.sira ?? 0 }).eq('id', b.id),
+    ])
     yukleDetay(seciliHesap.id)
   }
 
   const yukariTasi = async () => {
     const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
     if (idx <= 0) return
-    const yeni = [...pesinSirali]
-    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
-    await siraYenile(yeni)
+    await siraTakasEt(pesinSirali[idx], pesinSirali[idx - 1])
   }
 
   const asagiTasi = async () => {
     const idx = pesinSirali.findIndex(h => h.id === seciliSatirId)
     if (idx < 0 || idx >= pesinSirali.length - 1) return
-    const yeni = [...pesinSirali]
-    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
-    await siraYenile(yeni)
+    await siraTakasEt(pesinSirali[idx], pesinSirali[idx + 1])
   }
 
   const kaydetPesin = async () => {
     if (!yeniSatir || !yeniSatir.tutar) return
-    // Yeni kayıt -1 sira ile eklenir (listenin başına gelir)
-    const { data: yeniKayit } = await supabase.from('borc_harcamalar').insert({
+    // Yeni kayıt, hesaptaki en büyük sira değerinden bir fazlasını alır → listenin başına gelir
+    // ve mevcut kayıtların hiçbiri update görmez
+    const maxSira = harcamalar.reduce((m, h) => Math.max(m, h.sira ?? 0), -1)
+    await supabase.from('borc_harcamalar').insert({
       hesap_id: seciliHesap.id,
       tarih: yeniSatir.tarih,
       tutar: parseFloat(yeniSatir.tutar) || 0,
@@ -1056,15 +1054,10 @@ export default function BorcAlacak() {
       harcama_tipi: 'pesin',
       taksit_sayisi: 1,
       ekstre_kesildi: false,
-      sira: -1,
-    }).select().single()
+      sira: maxSira + 1,
+    })
     setYeniSatir(null)
-    // Yeni kayıt başa, eskiler arkaya — hepsini normalize et
-    if (yeniKayit) {
-      await siraYenile([yeniKayit, ...pesinSirali])
-    } else {
-      yukleDetay(seciliHesap.id)
-    }
+    yukleDetay(seciliHesap.id)
   }
 
   // Hesabı kapat → geçmişe taşır (aktif=false)
