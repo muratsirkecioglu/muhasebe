@@ -330,15 +330,6 @@ export default function Projeksiyon() {
 
   useEffect(() => { yukle() }, [yukle])
 
-  // İki kaydın sira değerini takas eder — sadece bu iki satır update görür, listenin geri kalanı etkilenmez
-  const siraTakasEt = async (a, b) => {
-    await Promise.all([
-      supabase.from('sabit_kalemler').update({ sira: b.sira ?? 0 }).eq('id', a.id),
-      supabase.from('sabit_kalemler').update({ sira: a.sira ?? 0 }).eq('id', b.id),
-    ])
-    yukle()
-  }
-
   const gelirler = kalemler.filter(k => k.tip === 'gelir').sort((a, b) => (a.sira ?? 9999) - (b.sira ?? 9999))
   const giderler = kalemler.filter(k => k.tip === 'gider').sort((a, b) => (a.sira ?? 9999) - (b.sira ?? 9999))
 
@@ -347,14 +338,36 @@ export default function Projeksiyon() {
   const tipListesi  = seciliTip === 'gelir' ? gelirler : seciliTip === 'gider' ? giderler : []
   const seciliIdx   = tipListesi.findIndex(k => k.id === seciliId)
 
+  // İki kaydın yerini değiştirir.
+  // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
+  // - sira hiç atanmamışsa (null): bu tip için ilk kullanımda, o anki görüntülenen sırayı
+  //   esas alıp (takas uygulanmış haliyle) tüm listeyi 0,1,2,… diye normalize eder.
+  const siraTakasEt = async (idxA, idxB) => {
+    const liste = tipListesi
+    const a = liste[idxA], b = liste[idxB]
+    if (a.sira != null && b.sira != null) {
+      await Promise.all([
+        supabase.from('sabit_kalemler').update({ sira: b.sira }).eq('id', a.id),
+        supabase.from('sabit_kalemler').update({ sira: a.sira }).eq('id', b.id),
+      ])
+    } else {
+      const yeni = [...liste]
+      ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
+      await Promise.all(
+        yeni.map((k, i) => supabase.from('sabit_kalemler').update({ sira: i }).eq('id', k.id))
+      )
+    }
+    yukle()
+  }
+
   const yukariTasi = async () => {
     if (seciliIdx <= 0) return
-    await siraTakasEt(tipListesi[seciliIdx], tipListesi[seciliIdx - 1])
+    await siraTakasEt(seciliIdx, seciliIdx - 1)
   }
 
   const asagiTasi = async () => {
     if (seciliIdx < 0 || seciliIdx >= tipListesi.length - 1) return
-    await siraTakasEt(tipListesi[seciliIdx], tipListesi[seciliIdx + 1])
+    await siraTakasEt(seciliIdx, seciliIdx + 1)
   }
 
   const toggleAktif = async (id, mevcutAktif) => {

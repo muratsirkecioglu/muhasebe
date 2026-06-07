@@ -267,27 +267,40 @@ export default function Islemler() {
     yukle()
   }
 
-  // İki kaydın sira değerini takas eder (farklı tablolarda olabilirler) — sadece bu iki satır update görür
-  const siraTakasEt = async (a, b) => {
-    await Promise.all([
-      supabase.from(a._tablo).update({ sira: b.sira ?? 0 }).eq('id', a.id),
-      supabase.from(b._tablo).update({ sira: a.sira ?? 0 }).eq('id', b.id),
-    ])
+  const satirKey = (r) => `${r._tablo}-${r.id}`
+
+  // İki kaydın yerini değiştirir (farklı tablolarda olabilirler).
+  // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
+  // - sira hiç atanmamışsa (null): ilk kullanımda, o anki görüntülenen sırayı esas alıp
+  //   (takas uygulanmış haliyle) tüm listeyi 0,1,2,… diye normalize eder.
+  const siraTakasEt = async (idxA, idxB) => {
+    const liste = islemler
+    const a = liste[idxA], b = liste[idxB]
+    if (a.sira != null && b.sira != null) {
+      await Promise.all([
+        supabase.from(a._tablo).update({ sira: b.sira }).eq('id', a.id),
+        supabase.from(b._tablo).update({ sira: a.sira }).eq('id', b.id),
+      ])
+    } else {
+      const yeni = [...liste]
+      ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
+      await Promise.all(
+        yeni.map((r, i) => supabase.from(r._tablo).update({ sira: i }).eq('id', r.id))
+      )
+    }
     yukle()
   }
-
-  const satirKey = (r) => `${r._tablo}-${r.id}`
 
   const yukariTasi = async () => {
     const idx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
     if (idx <= 0) return
-    await siraTakasEt(islemler[idx], islemler[idx - 1])
+    await siraTakasEt(idx, idx - 1)
   }
 
   const asagiTasi = async () => {
     const idx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
     if (idx < 0 || idx >= islemler.length - 1) return
-    await siraTakasEt(islemler[idx], islemler[idx + 1])
+    await siraTakasEt(idx, idx + 1)
   }
 
   const seciliIdx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
