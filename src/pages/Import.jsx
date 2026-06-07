@@ -249,31 +249,6 @@ async function importBirikim(ws) {
   return kayitlar.length
 }
 
-async function importBorcAlacak(ws) {
-  const kayitlar = []
-  const sonSatir = ws['!ref'] ? parseInt(ws['!ref'].split(':')[1].replace(/[A-Z]/g, '')) : 231
-  const h = (r, c) => hucreOku(ws, r, c)
-  let sonKisi = null
-
-  for (let r = 21; r <= sonSatir; r++) {
-    const tarihVal = h(r, 1), kisiVal = h(r, 2)
-    const alinan = sayi(h(r, 3)), odenen = sayi(h(r, 4))
-    const dovizMiktar = sayi(h(r, 7)), dovizBirim = h(r, 8), aciklama = h(r, 9)
-    if (kisiVal && String(kisiVal).trim()) sonKisi = String(kisiVal).trim()
-    if (!sonKisi) continue
-    if (alinan === 0 && odenen === 0) continue
-    const tarih = parseTarih(tarihVal)
-    if (tarih && tarih.getFullYear() > 2030) continue
-    const base = { kisi: sonKisi, tarih: tarih ? tarih.toISOString() : null, doviz_miktar: dovizMiktar !== 0 ? dovizMiktar : null, doviz_birim: dovizBirim ? String(dovizBirim).trim() : null, aciklama: aciklama ? String(aciklama).trim() : null }
-    if (alinan !== 0) kayitlar.push({ ...base, hareket_tipi: 'alindi', tutar: Math.abs(alinan) })
-    if (odenen !== 0) kayitlar.push({ ...base, hareket_tipi: 'odendi', tutar: Math.abs(odenen) })
-  }
-
-  for (let i = 0; i < kayitlar.length; i += 500)
-    await supabase.from('borc_hareketler').insert(kayitlar.slice(i, i + 500))
-  return kayitlar.length
-}
-
 // --- Import kalemleri tanımı ---
 const IMPORTLAR = [
   {
@@ -303,13 +278,6 @@ const IMPORTLAR = [
     sheetFn: (wb) => wb.SheetNames.find(n => n === 'Birikim'),
     importFn: importBirikim,
     silFn: () => supabase.from('birikim_hareketler').delete().neq('id', 0),
-  },
-  {
-    key: 'borc', label: 'Borç-Alacak', emoji: '📋',
-    aciklama: 'Kişi bazlı borç ve alacak hareketleri',
-    sheetFn: (wb) => wb.SheetNames.find(n => n.toLowerCase().includes('bor') && n.includes('lacak')),
-    importFn: importBorcAlacak,
-    silFn: () => supabase.from('borc_hareketler').delete().neq('id', 0),
   },
 ]
 
@@ -407,8 +375,6 @@ export default function Import() {
       supabase.from('gelirler').delete().neq('id', 0),
       supabase.from('nk_transferler').delete().neq('id', 0),
       supabase.from('birikim_hareketler').delete().neq('id', 0),
-      supabase.from('borc_hareketler').delete().neq('id', 0),
-      supabase.from('borc_alacak').delete().neq('id', 0),
     ])
     setTumDurum(null)
     setTumSonuc(null)
