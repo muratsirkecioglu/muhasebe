@@ -7,20 +7,17 @@ import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr' }
 
-// borc_kalemler: sira, hesap_id + donem bazında scoped tutuluyor.
-// Verilen hesap için, listelenen dönemlerin her biri için o anki en yüksek
-// sira değerini getirir (kayıt yoksa -1). Yeni kayıtlar bu değer + 1 alır,
-// böylece son işlem her zaman o dönemin en yüksek sira'sına sahip olur.
-async function borcKalemMaxSiralar(hesapId, donemler) {
-  const benzersiz = [...new Set(donemler)]
-  const sonuc = {}
-  await Promise.all(benzersiz.map(async (donem) => {
-    const { data } = await supabase.from('borc_kalemler')
-      .select('sira').eq('hesap_id', hesapId).eq('donem', donem)
-      .order('sira', { ascending: false }).limit(1)
-    sonuc[donem] = data?.[0]?.sira ?? -1
-  }))
-  return sonuc
+// borc_kalemler: sira, hesap_id bazında scoped tutuluyor (kk hesaplarda dönem
+// filtreli, kişi hesaplarda tüm kayıtlar tek listede gösteriliyor — bu yüzden
+// havuz dönem değil, hesabın TAMAMI üzerinden tutulmalı).
+// Verilen hesap için o anki en yüksek sira değerini getirir (kayıt yoksa -1).
+// Yeni kayıtlar bu değer + 1, +2, … alır; böylece son işlem her zaman o
+// hesabın en yüksek sira'sına sahip olur ve dönemler arası çakışma olmaz.
+async function borcKalemMaxSira(hesapId) {
+  const { data } = await supabase.from('borc_kalemler')
+    .select('sira').eq('hesap_id', hesapId)
+    .order('sira', { ascending: false }).limit(1)
+  return data?.[0]?.sira ?? -1
 }
 
 // Islemler ekranı, giderler+gelirler'i dönem bazında BİRLEŞİK liste olarak gösterip
@@ -372,8 +369,8 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           : `Taksit (${i + 1}/${taksitler.length})`,
       }
     })
-    const maxSiralar = await borcKalemMaxSiralar(hesapId, yeniKalemler.map(k => k.donem))
-    for (const kalem of yeniKalemler) kalem.sira = ++maxSiralar[kalem.donem]
+    let sonSira = await borcKalemMaxSira(hesapId)
+    for (const kalem of yeniKalemler) kalem.sira = ++sonSira
     await supabase.from('borc_kalemler').insert(yeniKalemler)
     onKayit(); onKapat()
   }
@@ -473,7 +470,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
     const tutar = parseFloat(form.tutar) || 0
     const d = new Date(form.tarih)
     const donem = d.getFullYear() * 100 + d.getMonth() + 1
-    const maxSiralar = await borcKalemMaxSiralar(hesap.id, [donem])
+    const sira = (await borcKalemMaxSira(hesap.id)) + 1
     await supabase.from('borc_kalemler').insert({
       hesap_id: hesap.id,
       tarih: form.tarih,
@@ -481,7 +478,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
       tutar: form.tur === 'al' ? tutar : -tutar,
       aciklama: form.aciklama || null,
       tur: form.tur,
-      sira: maxSiralar[donem] + 1,
+      sira,
     })
     onKayit(); onKapat()
   }
@@ -703,8 +700,8 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           odendi: odendi[i] || false,
         }
       })
-      const maxSiralar = await borcKalemMaxSiralar(hesap.id, kalemler.map(k => k.donem))
-      for (const kalem of kalemler) kalem.sira = ++maxSiralar[kalem.donem]
+      let sonSira = await borcKalemMaxSira(hesap.id)
+      for (const kalem of kalemler) kalem.sira = ++sonSira
       await supabase.from('borc_kalemler').insert(kalemler)
     } else {
       // Peşin: bekleyen listesine ekle, ekstre kesilince işlenir
@@ -842,8 +839,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
 
     // 1. Bekleyen peşin harcamaları borc_kalemler'e ekle + ödendi işaretle
     if (bekleyenPesin.length > 0) {
-      const maxSiralar = await borcKalemMaxSiralar(hesap.id, [donem])
-      let sonSira = maxSiralar[donem]
+      let sonSira = await borcKalemMaxSira(hesap.id)
       const yeniKalemler = bekleyenPesin.map(h => ({
         hesap_id: hesap.id,
         tarih: bugun,
@@ -1186,12 +1182,15 @@ export default function BorcAlacak() {
   }
 
   // Filtrelenmiş + sıralanmış hareketler
-  // Dönem seçiliyse sira sırası, değilse tarih sırası
+  // - KK hesapta dönem seçiliyse: o döneme filtrelenir + sira sırasına göre gösterilir
+  // - Kişi hesapta: tüm kayıtlar (dönem filtresi yok) sira sırasına göre gösterilir
+  // - Aksi halde (KK, dönem seçili değilken): tarih sırası
+  const siralamaAktifMi = !!seciliDonem || seciliHesap?.tip === 'kisi'
   const gosterilecekHareketler = (() => {
     const base = seciliDonem
       ? hareketler.filter(r => r.donem === seciliDonem)
       : hareketler
-    if (!seciliDonem) return base
+    if (!siralamaAktifMi) return base
     return [...base].sort((a, b) => {
       if (a.sira != null && b.sira != null) return b.sira - a.sira
       if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
@@ -1199,7 +1198,7 @@ export default function BorcAlacak() {
     })
   })()
 
-  const hareketSiralamaAktif = !!seciliDonem
+  const hareketSiralamaAktif = siralamaAktifMi
   const seciliHareketIdx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
 
   // İki kaydın yerini değiştirir.
