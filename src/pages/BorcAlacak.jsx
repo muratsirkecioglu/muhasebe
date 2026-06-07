@@ -1143,29 +1143,25 @@ export default function BorcAlacak() {
   const hareketSiralamaAktif = !!seciliDonem
   const seciliHareketIdx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
 
-  const siraYenileHareket = async (siraliListe) => {
-    await Promise.all(
-      siraliListe.map((r, i) =>
-        supabase.from('borc_kalemler').update({ sira: i }).eq('id', r.id)
-      )
-    )
+  // İki kaydın sira değerini takas eder — sadece bu iki satır update görür, listenin geri kalanı etkilenmez
+  const siraTakasEtHareket = async (a, b) => {
+    await Promise.all([
+      supabase.from('borc_kalemler').update({ sira: b.sira ?? 0 }).eq('id', a.id),
+      supabase.from('borc_kalemler').update({ sira: a.sira ?? 0 }).eq('id', b.id),
+    ])
     yukleDetay(seciliHesap.id)
   }
 
   const yukariTasiHareket = async () => {
     const idx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
     if (idx <= 0) return
-    const yeni = [...gosterilecekHareketler]
-    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
-    await siraYenileHareket(yeni)
+    await siraTakasEtHareket(gosterilecekHareketler[idx], gosterilecekHareketler[idx - 1])
   }
 
   const asagiTasiHareket = async () => {
     const idx = gosterilecekHareketler.findIndex(r => r.id === seciliHareketId)
     if (idx < 0 || idx >= gosterilecekHareketler.length - 1) return
-    const yeni = [...gosterilecekHareketler]
-    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
-    await siraYenileHareket(yeni)
+    await siraTakasEtHareket(gosterilecekHareketler[idx], gosterilecekHareketler[idx + 1])
   }
 
   return (

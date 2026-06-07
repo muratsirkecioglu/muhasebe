@@ -330,11 +330,12 @@ export default function Projeksiyon() {
 
   useEffect(() => { yukle() }, [yukle])
 
-  // Sıralama — sadece aynı tip içinde
-  const siraYenile = async (sirali) => {
-    await Promise.all(sirali.map((k, i) =>
-      supabase.from('sabit_kalemler').update({ sira: i }).eq('id', k.id)
-    ))
+  // İki kaydın sira değerini takas eder — sadece bu iki satır update görür, listenin geri kalanı etkilenmez
+  const siraTakasEt = async (a, b) => {
+    await Promise.all([
+      supabase.from('sabit_kalemler').update({ sira: b.sira ?? 0 }).eq('id', a.id),
+      supabase.from('sabit_kalemler').update({ sira: a.sira ?? 0 }).eq('id', b.id),
+    ])
     yukle()
   }
 
@@ -348,16 +349,12 @@ export default function Projeksiyon() {
 
   const yukariTasi = async () => {
     if (seciliIdx <= 0) return
-    const yeni = [...tipListesi]
-    ;[yeni[seciliIdx - 1], yeni[seciliIdx]] = [yeni[seciliIdx], yeni[seciliIdx - 1]]
-    await siraYenile(yeni)
+    await siraTakasEt(tipListesi[seciliIdx], tipListesi[seciliIdx - 1])
   }
 
   const asagiTasi = async () => {
     if (seciliIdx < 0 || seciliIdx >= tipListesi.length - 1) return
-    const yeni = [...tipListesi]
-    ;[yeni[seciliIdx], yeni[seciliIdx + 1]] = [yeni[seciliIdx + 1], yeni[seciliIdx]]
-    await siraYenile(yeni)
+    await siraTakasEt(tipListesi[seciliIdx], tipListesi[seciliIdx + 1])
   }
 
   const toggleAktif = async (id, mevcutAktif) => {

@@ -428,30 +428,25 @@ export default function Birikim() {
   const siralamaAktif = filtreTur !== 'Tümü'
   const seciliIdx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
 
-  // Sıra normalize: seçili hesabın tüm satırlarına 0,1,2,… yazar
-  const siraYenile = async (siraliListe) => {
-    await Promise.all(
-      siraliListe.map((r, i) =>
-        supabase.from('birikim_hareketler').update({ sira: i }).eq('id', r.id)
-      )
-    )
+  // İki kaydın sira değerini takas eder — sadece bu iki satır update görür, listenin geri kalanı etkilenmez
+  const siraTakasEt = async (a, b) => {
+    await Promise.all([
+      supabase.from('birikim_hareketler').update({ sira: b.sira ?? 0 }).eq('id', a.id),
+      supabase.from('birikim_hareketler').update({ sira: a.sira ?? 0 }).eq('id', b.id),
+    ])
     yukle()
   }
 
   const yukariTasi = async () => {
     const idx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
     if (idx <= 0) return
-    const yeni = [...filtrelenmis]
-    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
-    await siraYenile(yeni)
+    await siraTakasEt(filtrelenmis[idx], filtrelenmis[idx - 1])
   }
 
   const asagiTasi = async () => {
     const idx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
     if (idx < 0 || idx >= filtrelenmis.length - 1) return
-    const yeni = [...filtrelenmis]
-    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
-    await siraYenile(yeni)
+    await siraTakasEt(filtrelenmis[idx], filtrelenmis[idx + 1])
   }
 
   const secilenHesap = filtreTur !== 'Tümü' ? HESAPLAR.find(h => h.tur === filtreTur) : null

@@ -267,13 +267,12 @@ export default function Islemler() {
     yukle()
   }
 
-  // Her öğeye 0,1,2,… sıra numarası yaz — iki farklı tabloya güncelleme yapılır
-  const siraYenile = async (siraliListe) => {
-    await Promise.all(
-      siraliListe.map((r, i) =>
-        supabase.from(r._tablo).update({ sira: i }).eq('id', r.id)
-      )
-    )
+  // İki kaydın sira değerini takas eder (farklı tablolarda olabilirler) — sadece bu iki satır update görür
+  const siraTakasEt = async (a, b) => {
+    await Promise.all([
+      supabase.from(a._tablo).update({ sira: b.sira ?? 0 }).eq('id', a.id),
+      supabase.from(b._tablo).update({ sira: a.sira ?? 0 }).eq('id', b.id),
+    ])
     yukle()
   }
 
@@ -282,17 +281,13 @@ export default function Islemler() {
   const yukariTasi = async () => {
     const idx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
     if (idx <= 0) return
-    const yeni = [...islemler]
-    ;[yeni[idx - 1], yeni[idx]] = [yeni[idx], yeni[idx - 1]]
-    await siraYenile(yeni)
+    await siraTakasEt(islemler[idx], islemler[idx - 1])
   }
 
   const asagiTasi = async () => {
     const idx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
     if (idx < 0 || idx >= islemler.length - 1) return
-    const yeni = [...islemler]
-    ;[yeni[idx], yeni[idx + 1]] = [yeni[idx + 1], yeni[idx]]
-    await siraYenile(yeni)
+    await siraTakasEt(islemler[idx], islemler[idx + 1])
   }
 
   const seciliIdx = islemler.findIndex(r => satirKey(r) === seciliSatirId)
