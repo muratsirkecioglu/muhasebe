@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react'
+import { yerelTarih } from '../db'
 
 function isoToDisplay(iso) {
   if (!iso) return ''
-  const date = String(iso).split('T')[0]
+  // DB'den gelen değer "YYYY-MM-DD" (saat bilgisi yoksa) ya da
+  // "YYYY-MM-DDTHH:mm:ss+00:00" (timestamptz) olabilir. Ham string'i
+  // bölmek yerine yerelTarih ile YEREL tarihe göre normalize ediyoruz —
+  // aksi halde UTC kayması nedeniyle (örn. Türkiye'de gece yarısı kayıtları)
+  // bir gün önceki tarih gösterilebilir.
+  const date = yerelTarih(iso) || String(iso).split('T')[0]
   const parts = date.split('-')
   if (parts.length !== 3) return iso
   return `${parts[2]}.${parts[1]}.${parts[0]}`

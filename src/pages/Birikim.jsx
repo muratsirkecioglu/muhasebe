@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih } from '../db'
+import { formatPara, formatTarih, yerelTarih } from '../db'
 import { Plus, Trash2, Download, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import * as XLSX from 'xlsx'
@@ -50,7 +50,7 @@ function exportExcel(hareketler) {
     XLSX.utils.book_append_sheet(wb, ws, sheetAd)
   }
 
-  const tarih = new Date().toISOString().split('T')[0]
+  const tarih = yerelTarih(new Date())
   XLSX.writeFile(wb, `birikim-${tarih}.xlsx`)
 }
 
@@ -76,7 +76,7 @@ function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
   const hesap = HESAPLAR.find(h => h.tur === kayit.tur)
   const isDoviz = hesap && hesap.doviz !== 'TL'
   const [form, setForm] = useState({
-    tarih: kayit.tarih ? String(kayit.tarih).split('T')[0] : '',
+    tarih: kayit.tarih ? yerelTarih(kayit.tarih) : '',
     miktar: String(Math.abs(kayit.miktar || 0)),
     islem_tl: String(Math.abs(kayit.islem_tl || 0)),
     kur: String(kayit.kur || ''),
@@ -188,7 +188,7 @@ function IslemFormu({ onKapat, onKayit }) {
   const [miktar, setMiktar] = useState('')
   const [islemTl, setIslemTl] = useState('')
   const [kur, setKur] = useState('')
-  const [tarih, setTarih] = useState(new Date().toISOString().split('T')[0])
+  const [tarih, setTarih] = useState(yerelTarih(new Date()))
   const [aciklama, setAciklama] = useState('')
   const [kaydediliyor, setKaydediliyor] = useState(false)
 

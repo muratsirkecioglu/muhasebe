@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { buDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
+import { buDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import { useMask } from '../MaskContext'
@@ -24,7 +24,7 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
   const tur = kayit._tur
   const kategoriler = tur === 'gider' ? GIDER_KATEGORILER : GELIR_TURLERI
   const [form, setForm] = useState({
-    tarih: kayit.tarih ? String(kayit.tarih).split('T')[0] : '',
+    tarih: kayit.tarih ? yerelTarih(kayit.tarih) : '',
     kategori: kayit.kategori || '',
     k: String(kayit.k || ''),
     hesap: kayit.hesap || 'K',
@@ -118,7 +118,7 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
 
 function IslemFormu({ tur, onKapat, onKayit }) {
   const [form, setForm] = useState({
-    tarih: new Date().toISOString().split('T')[0],
+    tarih: yerelTarih(new Date()),
     kategori: tur === 'gider' ? GIDER_KATEGORILER[0] : GELIR_TURLERI[0],
     k: '',
     hesap: 'K',

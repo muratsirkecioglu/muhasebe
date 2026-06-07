@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, GIDER_KATEGORILER } from '../db'
+import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER } from '../db'
 import TarihInput from '../components/TarihInput'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
 
@@ -166,7 +166,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
 function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
   const sembol = SEMBOL[doviz_cinsi] || doviz_cinsi
   const [form, setForm] = useState({
-    tarih: kalem.tarih ? String(kalem.tarih).split('T')[0] : new Date().toISOString().split('T')[0],
+    tarih: kalem.tarih ? yerelTarih(kalem.tarih) : yerelTarih(new Date()),
     tutar: Math.abs(kalem.tutar),
     aciklama: kalem.aciklama || '',
   })
@@ -237,13 +237,13 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
         const rows = (data || []).map(r => ({
           ...r,
           _tutar: String(Math.abs(r.tutar || 0)),
-          _tarih: r.tarih ? String(r.tarih).split('T')[0] : '',
+          _tarih: r.tarih ? yerelTarih(r.tarih) : '',
         }))
         setTaksitler(rows)
         const top = rows.reduce((s, r) => s + (parseFloat(r._tutar) || 0), 0)
         setToplamTutar(String(Math.round(top * 100) / 100))
         // İlk taksit tarihi = işlem tarihi referansı
-        setIslemTarihi(rows[0]?._tarih || new Date().toISOString().split('T')[0])
+        setIslemTarihi(rows[0]?._tarih || yerelTarih(new Date()))
         setYukleniyor(false)
       })
   }, [grupId])
@@ -279,7 +279,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
     setTaksitler(t => t.map((r, i) => {
       const t2 = new Date(baslangic)
       t2.setMonth(t2.getMonth() + i)
-      return { ...r, _tarih: t2.toISOString().split('T')[0] }
+      return { ...r, _tarih: yerelTarih(t2) }
     }))
   }
 
@@ -295,7 +295,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           const t = new Date(sonTarih)
           t.setMonth(t.getMonth() + (i - rows.length + 1))
           rows.push({
-            id: `new_${i}`, _tutar: '0', _tarih: t.toISOString().split('T')[0],
+            id: `new_${i}`, _tutar: '0', _tarih: yerelTarih(t),
             odendi: false, tur: 'taksit', hesap_id: hesapId, grup_id: grupId,
             taksit_no: i + 1, taksit_toplam: yeniSayi,
             kategori: mevcut[0]?.kategori || null, aciklama: mevcut[0]?.aciklama?.replace(/\(\d+\/\d+\)/, '') || null,
@@ -425,7 +425,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
 function AlOdeFormu({ hesap, onKapat, onKayit }) {
   const sembol = SEMBOL[hesap.doviz_cinsi] || hesap.doviz_cinsi
   const [form, setForm] = useState({
-    tarih: new Date().toISOString().split('T')[0],
+    tarih: yerelTarih(new Date()),
     tur: 'al',
     tutar: '',
     aciklama: '',
@@ -501,7 +501,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
 // --- KK: Bekleyen Harcama Düzenleme ---
 function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
   const [form, setForm] = useState({
-    tarih: harcama.tarih ? String(harcama.tarih).split('T')[0] : '',
+    tarih: harcama.tarih ? yerelTarih(harcama.tarih) : '',
     tutar: String(harcama.tutar || ''),
     kategori: harcama.kategori || GIDER_KATEGORILER[0],
     aciklama: harcama.aciklama || '',
@@ -596,7 +596,7 @@ function taksitDagit(tutar, sayi) {
 }
 
 function HarcamaFormu({ hesap, onKapat, onKayit }) {
-  const bugun = new Date().toISOString().split('T')[0]
+  const bugun = yerelTarih(new Date())
   const [form, setForm] = useState({
     tarih: bugun,
     tutar: '',
@@ -654,7 +654,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
         const donem = taksitAy.getFullYear() * 100 + taksitAy.getMonth() + 1
         return {
           hesap_id: hesap.id,
-          tarih: taksitAy.toISOString().split('T')[0],
+          tarih: yerelTarih(taksitAy),
           donem,
           tutar: parseFloat(miktar) || 0,
           kategori: form.kategori || null,
@@ -797,7 +797,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
   const kesEkstre = async () => {
     if (hicKayitYok) return
     setKaydediliyor(true)
-    const bugun = new Date().toISOString().split('T')[0]
+    const bugun = yerelTarih(new Date())
     const donem = seciliDonem || (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
     const giderler = []
 
@@ -1464,7 +1464,7 @@ export default function BorcAlacak() {
                     className="w-6 h-6 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center transition-colors">
                     <ChevronDown size={13} />
                   </button>
-                  <button onClick={() => { setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: new Date().toISOString().split('T')[0], tutar: '' }); setSeciliSatirId(null) }}
+                  <button onClick={() => { setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: yerelTarih(new Date()), tutar: '' }); setSeciliSatirId(null) }}
                     className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center justify-center transition-colors">
                     <Plus size={13} />
                   </button>

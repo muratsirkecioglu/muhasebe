@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { formatPara } from '../db'
+import { formatPara, yerelTarih } from '../db'
 import { Landmark, Banknote, ArrowLeftRight, Settings, CreditCard, TrendingDown, TrendingUp } from 'lucide-react'
 import CoinIcon from '../components/CoinIcon'
 import TarihInput from '../components/TarihInput'
@@ -8,7 +8,7 @@ import TarihInput from '../components/TarihInput'
 function TransferFormu({ onKapat, onKayit }) {
   const [yon, setYon] = useState('cek')
   const [tutar, setTutar] = useState('')
-  const [tarih, setTarih] = useState(new Date().toISOString().split('T')[0])
+  const [tarih, setTarih] = useState(yerelTarih(new Date()))
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   const kaydet = async (e) => {

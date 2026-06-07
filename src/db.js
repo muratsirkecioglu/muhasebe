@@ -20,6 +20,25 @@ export function tarihtenDonem(tarihStr) {
   return d.getFullYear() * 100 + (d.getMonth() + 1)
 }
 
+// Bir Date nesnesini ya da DB'den gelen timestamptz/ISO string'ini,
+// YEREL tarihe göre "YYYY-MM-DD" formatına çevirir.
+// NOT: `date.toISOString().split('T')[0]` veya `String(iso).split('T')[0]`
+// KULLANMAYIN — bunlar UTC'ye göre kestiği için, yerel saat dilimi UTC'den
+// ileride olduğunda (örn. Türkiye UTC+3) gece yarısına yakın saatlerdeki
+// tarihler bir gün geriye kayar (örn. 01.06.2026 00:00 yerel → DB'de
+// 2026-05-31 21:00:00+00 olarak saklanır; ham string'i bölmek "31.05.2026"
+// gibi YANLIŞ bir tarih üretir). Bu fonksiyon her zaman `new Date(...)`
+// ile parse edip yerel getFullYear/getMonth/getDate kullanır.
+export function yerelTarih(deger) {
+  if (!deger) return ''
+  const d = deger instanceof Date ? deger : new Date(deger)
+  if (isNaN(d)) return ''
+  const y = d.getFullYear()
+  const a = String(d.getMonth() + 1).padStart(2, '0')
+  const g = String(d.getDate()).padStart(2, '0')
+  return `${y}-${a}-${g}`
+}
+
 export function donemLabel(donem) {
   const y = Math.floor(donem / 100)
   const m = donem % 100

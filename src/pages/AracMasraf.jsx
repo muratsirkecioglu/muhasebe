@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih } from '../db'
+import { formatPara, formatTarih, yerelTarih } from '../db'
 import { Plus, Trash2, Fuel, ParkingCircle, Waves } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 
@@ -8,7 +8,7 @@ const KATEGORILER = ['Yakıt', 'HGS', 'Otopark', 'Yıkama', 'Sigorta', 'MTV', 'S
 const IKONLAR = { Yakıt: Fuel, Otopark: ParkingCircle, Yıkama: Waves }
 
 function EkleFormu({ onKapat, onKayit }) {
-  const [form, setForm] = useState({ tarih: new Date().toISOString().split('T')[0], kategori: 'Yakıt', tutar: '', aciklama: '' })
+  const [form, setForm] = useState({ tarih: yerelTarih(new Date()), kategori: 'Yakıt', tutar: '', aciklama: '' })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   const kaydet = async (e) => {
