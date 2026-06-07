@@ -116,6 +116,14 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
   )
 }
 
+// "Birikim (TL)" hesabındaki en büyük sira değerinden bir fazlasını döner
+// → yeni kayıt o hesabın listesinde en üstte görünür, mevcut kayıtlar update görmez
+async function birikimSiraGetir() {
+  const { data } = await supabase.from('birikim_hareketler')
+    .select('sira').eq('tur', 'Birikim (TL)').order('sira', { ascending: false }).limit(1)
+  return (data?.[0]?.sira ?? -1) + 1
+}
+
 function IslemFormu({ tur, onKapat, onKayit }) {
   const [form, setForm] = useState({
     tarih: yerelTarih(new Date()),
@@ -143,6 +151,7 @@ function IslemFormu({ tur, onKapat, onKayit }) {
           tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
           alt_tip: 'Birikim', miktar: tutar, islem_tl: tutar,
           aciklama: 'yatırıma gelen', grup_id: grupId,
+          sira: await birikimSiraGetir(),
         })
       }
     } else {
@@ -155,6 +164,7 @@ function IslemFormu({ tur, onKapat, onKayit }) {
           tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
           alt_tip: 'Birikim', miktar: -tutar, islem_tl: -tutar,
           aciklama: 'yatırım hesabından çekilen', grup_id: grupId,
+          sira: await birikimSiraGetir(),
         })
       }
     }

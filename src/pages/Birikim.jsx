@@ -253,6 +253,19 @@ function IslemFormu({ onKapat, onKayit }) {
       })
     }
 
+    // Yeni kayıtlar, kendi hesabındaki (tur) en büyük sira değerinden bir fazlasını alır
+    // → o hesabın listesinde en üstte görünür, mevcut kayıtlar update görmez
+    const turler = [...new Set(kayitlar.map(k => k.tur))]
+    const maxSiralar = {}
+    await Promise.all(turler.map(async (t) => {
+      const { data } = await supabase.from('birikim_hareketler')
+        .select('sira').eq('tur', t).order('sira', { ascending: false }).limit(1)
+      maxSiralar[t] = data?.[0]?.sira ?? -1
+    }))
+    for (const kayit of kayitlar) {
+      kayit.sira = ++maxSiralar[kayit.tur]
+    }
+
     await supabase.from('birikim_hareketler').insert(kayitlar)
     onKayit(); onKapat()
   }
@@ -411,14 +424,14 @@ export default function Birikim() {
   }
 
   // Filtrelenmiş + sıralanmış liste
-  // Tümü: tarih sırası, Specific: sira sırası (yoksa tarih)
+  // Tümü: tarih sırası, Specific: sira sırası büyükten küçüğe (yoksa tarih) — en yeni işlem en yüksek sira değerini alır ve en üstte görünür
   const filtrelenmis = (() => {
     const base = filtreTur === 'Tümü'
       ? hareketler
       : hareketler.filter(r => r.tur === filtreTur)
     if (filtreTur === 'Tümü') return base
     return [...base].sort((a, b) => {
-      if (a.sira != null && b.sira != null) return a.sira - b.sira
+      if (a.sira != null && b.sira != null) return b.sira - a.sira
       if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
       return a.sira != null ? -1 : 1
     })
@@ -431,7 +444,8 @@ export default function Birikim() {
   // İki kaydın yerini değiştirir.
   // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
   // - sira hiç atanmamışsa (null): bu hesap için ilk kullanımda, o anki görüntülenen
-  //   sırayı esas alıp (takas uygulanmış haliyle) tüm listeyi 0,1,2,… diye normalize eder.
+  //   sırayı esas alıp (takas uygulanmış haliyle) tüm listeyi normalize eder
+  //   (büyükten küçüğe: en yeni işlem en yüksek değeri alır).
   //   Sonraki taşımalar artık tanımlı sira üzerinden ucuz takasla devam eder.
   const siraTakasEt = async (idxA, idxB) => {
     const liste = filtrelenmis
@@ -444,8 +458,9 @@ export default function Birikim() {
     } else {
       const yeni = [...liste]
       ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
+      const n = yeni.length
       await Promise.all(
-        yeni.map((r, i) => supabase.from('birikim_hareketler').update({ sira: i }).eq('id', r.id))
+        yeni.map((r, i) => supabase.from('birikim_hareketler').update({ sira: n - 1 - i }).eq('id', r.id))
       )
     }
     yukle()
