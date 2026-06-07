@@ -13,6 +13,13 @@ export function buDonem() {
   return d.getFullYear() * 100 + (d.getMonth() + 1)
 }
 
+// Bir tarih string'inden (YYYY-MM-DD) dönem (YYYYMM) hesaplar
+export function tarihtenDonem(tarihStr) {
+  const d = new Date(tarihStr)
+  if (isNaN(d)) return buDonem()
+  return d.getFullYear() * 100 + (d.getMonth() + 1)
+}
+
 export function donemLabel(donem) {
   const y = Math.floor(donem / 100)
   const m = donem % 100

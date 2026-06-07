@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { buDonem, donemLabel, formatPara, formatTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
+import { buDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import { useMask } from '../MaskContext'
@@ -36,10 +36,12 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
     e.preventDefault()
     setKaydediliyor(true)
     const yeniTutar = parseFloat(form.k) || 0
+    const yeniDonem = tarihtenDonem(form.tarih)
 
     // Ana kaydı güncelle
     await supabase.from(kayit._tablo).update({
       tarih: form.tarih,
+      donem: yeniDonem,
       k: yeniTutar,
       hesap: form.hesap,
       aciklama: form.aciklama,
@@ -114,7 +116,7 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
   )
 }
 
-function IslemFormu({ tur, donem, onKapat, onKayit }) {
+function IslemFormu({ tur, onKapat, onKayit }) {
   const [form, setForm] = useState({
     tarih: new Date().toISOString().split('T')[0],
     kategori: tur === 'gider' ? GIDER_KATEGORILER[0] : GELIR_TURLERI[0],
@@ -128,6 +130,7 @@ function IslemFormu({ tur, donem, onKapat, onKayit }) {
     e.preventDefault()
     setKaydediliyor(true)
     const tutar = parseFloat(form.k) || 0
+    const donem = tarihtenDonem(form.tarih)
     const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama }
 
     if (tur === 'gider') {
@@ -458,7 +461,7 @@ export default function Islemler() {
         </div>
       )}
 
-      {form && <IslemFormu tur={form} donem={donem} onKapat={() => setForm(null)} onKayit={yukle} />}
+      {form && <IslemFormu tur={form} onKapat={() => setForm(null)} onKayit={yukle} />}
       {duzenle && <DuzenleFormu kayit={duzenle} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
     </div>
   )
