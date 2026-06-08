@@ -429,7 +429,13 @@ export default function Birikim() {
   const yukle = useCallback(async () => {
     if (!hesapMap) return
     setYukleniyor(true)
-    const hesapIdListesi = Object.keys(hesapMap.idToAd).map(Number).filter(id => !Number.isNaN(id))
+    // DİKKAT: yalnızca Birikim (TL) + alt hesapların hareketleri çekilmeli — Banka/Nakit
+    // id'leri idToAd'da SADECE _karsiAd görüntü etiketini çözmek için bulunuyor (bkz.
+    // hesaplarGetir). Onları bu listeye dahil etmek, yıllarca biriken TÜM Banka/Nakit
+    // gelir/gider kayıtlarının da çekilmesine yol açar — hem çok yavaş hem de (sayfalama
+    // sırasında bir hata/limit oluşursa) Birikim (TL) bakiyesinin EKSİK/YANLIŞ hesabına
+    // sebep olabilir.
+    const hesapIdListesi = hesapMap.HESAPLAR.map(h => h.id)
     const SAYFA = 1000
     let tumVeriler = []
     let sayfa = 0
@@ -438,7 +444,14 @@ export default function Birikim() {
         .from('hesap_hareketler')
         .select('*')
         .in('hesap_id', hesapIdListesi)
+        // `tarih` tek başına sayfalama için GÜVENİLİR DEĞİL — birçok kayıt aynı
+        // tarih değerine sahip olabilir (örn. aynı güne ait işlemler) ve Postgres
+        // eşit değerli satırların göreli sırasını garanti etmez; bu da .range()
+        // sayfalamasında satırların atlanmasına/mükerrer gelmesine (ve dolayısıyla
+        // yanlış bakiye toplamına) yol açar. `id` ikincil anahtarı sıralamayı
+        // deterministik (kararlı) hale getirir.
         .order('tarih', { ascending: false })
+        .order('id', { ascending: false })
         .range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
       if (error || !data || data.length === 0) break
       tumVeriler = [...tumVeriler, ...data]
