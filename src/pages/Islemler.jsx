@@ -410,16 +410,16 @@ export default function Islemler() {
         <div className="flex gap-2 mb-4">
           <div className="flex-1 bg-green-50 border border-green-100 rounded-xl px-3 py-2">
             <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wide">Gelir</p>
-            <p className="text-sm font-bold text-green-700">₺{formatPara(toplamGelir)}</p>
+            <p className="text-sm font-bold text-green-700">{maskeli ? '••••' : `₺${formatPara(toplamGelir)}`}</p>
           </div>
           <div className="flex-1 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
             <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide">Gider</p>
-            <p className="text-sm font-bold text-red-600">₺{formatPara(toplamGider)}</p>
+            <p className="text-sm font-bold text-red-600">{maskeli ? '••••' : `₺${formatPara(toplamGider)}`}</p>
           </div>
           <div className={`flex-1 border rounded-xl px-3 py-2 ${net >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100'}`}>
             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Net</p>
             <p className={`text-sm font-bold ${net >= 0 ? 'text-blue-700' : 'text-orange-600'}`}>
-              {net >= 0 ? '+' : ''}₺{formatPara(Math.abs(net))}
+              {maskeli ? '••••' : `${net >= 0 ? '+' : ''}₺${formatPara(Math.abs(net))}`}
             </p>
           </div>
         </div>
@@ -531,7 +531,7 @@ export default function Islemler() {
                   {islemler.length} işlem
                 </td>
                 <td className={`px-3 py-2 text-right font-bold ${net >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                  {net >= 0 ? '+' : ''}₺{formatPara(Math.abs(net))}
+                  {maskeli ? '••••' : `${net >= 0 ? '+' : ''}₺${formatPara(Math.abs(net))}`}
                 </td>
                 <td></td>
               </tr>
