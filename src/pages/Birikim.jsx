@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih } from '../db'
+import { formatPara, formatTarih, yerelTarih, tarihtenDonem } from '../db'
 import { Plus, Trash2, Download, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import * as XLSX from 'xlsx'
 
-function exportExcel(hareketler) {
+function exportExcel(hareketler, hesapListesi) {
   const wb = XLSX.utils.book_new()
 
   // Her hesap için ayrı sheet
-  for (const hesap of HESAPLAR) {
+  for (const hesap of hesapListesi) {
     const kayitlar = hareketler
-      .filter(r => r.tur === hesap.tur)
+      .filter(r => r.ad === hesap.ad)
       .sort((a, b) => new Date(a.tarih) - new Date(b.tarih))
 
     if (kayitlar.length === 0) continue
@@ -46,7 +46,7 @@ function exportExcel(hareketler) {
       { wch: 14 }, { wch: 12 }, { wch: 30 }
     ]
     // Sheet adı max 31 karakter
-    const sheetAd = hesap.tur.replace(/[[\]*?:/\\]/g, '').substring(0, 31)
+    const sheetAd = hesap.ad.replace(/[[\]*?:/\\]/g, '').substring(0, 31)
     XLSX.utils.book_append_sheet(wb, ws, sheetAd)
   }
 
@@ -54,26 +54,57 @@ function exportExcel(hareketler) {
   XLSX.writeFile(wb, `birikim-${tarih}.xlsx`)
 }
 
-// 12 hesap tanımı
-export const HESAPLAR = [
-  { tur: 'Birikim (TL)',               doviz: 'TL',  emoji: '💰', renk: 'bg-blue-50 border-blue-200 text-blue-800' },
-  { tur: 'ALT(F)',                     doviz: 'ALT', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-200 text-yellow-800' },
-  { tur: 'ALT(H)',                     doviz: 'ALT', emoji: '🏦', renk: 'bg-amber-50 border-amber-200 text-amber-800' },
-  { tur: 'GMS(H)',                     doviz: 'GMS', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
-  { tur: 'USD',                        doviz: 'USD', emoji: '💵', renk: 'bg-green-50 border-green-200 text-green-800' },
-  { tur: 'EUR',                        doviz: 'EUR', emoji: '💶', renk: 'bg-indigo-50 border-indigo-200 text-indigo-800' },
-  { tur: 'GBP',                        doviz: 'GBP', emoji: '💷', renk: 'bg-purple-50 border-purple-200 text-purple-800' },
-  { tur: 'Yatırım (İnşaat)',           doviz: 'TL',  emoji: '🏗️', renk: 'bg-orange-50 border-orange-200 text-orange-800' },
-  { tur: 'Yatırım (Şirketi Hayriyye)', doviz: 'TL',  emoji: '🏢', renk: 'bg-rose-50 border-rose-200 text-rose-800' },
-  { tur: 'Yatırım (Palandora)',        doviz: 'TL',  emoji: '🏪', renk: 'bg-pink-50 border-pink-200 text-pink-800' },
-  { tur: 'Yatırım (Al-Sat)',           doviz: 'TL',  emoji: '🔄', renk: 'bg-teal-50 border-teal-200 text-teal-800' },
-  { tur: 'Yatırım (Hayvancılık)',      doviz: 'TL',  emoji: '🐄', renk: 'bg-lime-50 border-lime-200 text-lime-800' },
-]
+// ---------------------------------------------------------------------------
+// Hesap tanımları (görsel meta dahil) artık tamamen `hesaplar` tablosundan okunuyor
+// — bkz. supabase-hesap-gorsel-meta.sql (emoji/renk kolonları). Yeni bir birikim/
+// yatırım hesabı eklemek/yeniden sıralamak için KOD DEĞİŞİKLİĞİ gerekmez; sadece
+// `hesaplar` tablosuna (Birikim (TL)'nin altına, tip='birikim'|'yatirim', emoji/renk
+// ile) bir satır eklemek/güncellemek yeterlidir. DB'deki `ad` doğrudan ekranda
+// gösterilen etikettir (eski hardcoded 'tur' ad-eşlemesi kaldırıldı).
+// ---------------------------------------------------------------------------
+const VARSAYILAN_EMOJI = '💼'
+const VARSAYILAN_RENK = 'bg-slate-50 border-slate-200 text-slate-700'
 
-const TL_OLMAYAN = HESAPLAR.filter(h => h.doviz !== 'TL' || h.tur === 'Birikim (TL)').filter(h => h.tur !== 'Birikim (TL)')
+let _hesaplarCache = null
+async function hesaplarGetir() {
+  if (_hesaplarCache) return _hesaplarCache
 
-function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
-  const hesap = HESAPLAR.find(h => h.tur === kayit.tur)
+  // Birikim (TL) kökü + Banka/Nakit (köprü için — İşlemler ekranındaki "Birikim"
+  // kategorili transfer çiftlerinin karşı bacağını tanımak amacıyla idToAd'a dahil edilir)
+  const { data: kokler } = await supabase.from('hesaplar')
+    .select('id, ad, doviz_cinsi, emoji, renk')
+    .in('ad', ['Birikim (TL)', 'Banka', 'Nakit'])
+  const birikim = kokler?.find(h => h.ad === 'Birikim (TL)')
+  const bankaId = kokler?.find(h => h.ad === 'Banka')?.id
+  const nakitId = kokler?.find(h => h.ad === 'Nakit')?.id
+
+  // Birikim (TL)'nin görüntülenecek alt hesapları (varlık + yatırım tipleri), sıraya göre
+  const { data: altlar } = await supabase.from('hesaplar')
+    .select('id, ad, doviz_cinsi, emoji, renk, sira')
+    .eq('ust_hesap_id', birikim?.id)
+    .in('tip', ['birikim', 'yatirim'])
+    .eq('aktif', true)
+    .order('sira')
+
+  const HESAPLAR = [birikim, ...(altlar || [])].filter(Boolean).map(h => ({
+    id: h.id,
+    ad: h.ad,
+    doviz: h.doviz_cinsi,
+    emoji: h.emoji || VARSAYILAN_EMOJI,
+    renk: h.renk || VARSAYILAN_RENK,
+  }))
+
+  const adToId = {}, idToAd = {}
+  for (const h of HESAPLAR) { adToId[h.ad] = h.id; idToAd[h.id] = h.ad }
+  if (bankaId != null) idToAd[bankaId] = 'Banka'
+  if (nakitId != null) idToAd[nakitId] = 'Nakit'
+
+  _hesaplarCache = { HESAPLAR, adToId, idToAd, birikimId: birikim?.id, bankaId, nakitId }
+  return _hesaplarCache
+}
+
+function BirikimDuzenleFormu({ kayit, hesaplar, onKapat, onKayit }) {
+  const hesap = hesaplar.find(h => h.ad === kayit.ad)
   const isDoviz = hesap && hesap.doviz !== 'TL'
   const [form, setForm] = useState({
     tarih: kayit.tarih ? yerelTarih(kayit.tarih) : '',
@@ -93,33 +124,35 @@ function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
     const yeniIslemTL = (parseFloat(form.islem_tl) || 0) * isarTL
 
     // Ana kaydı güncelle
-    await supabase.from('birikim_hareketler').update({
+    await supabase.from('hesap_hareketler').update({
       tarih: form.tarih,
-      miktar: yeniMiktar,
+      tutar: yeniMiktar,
       islem_tl: yeniIslemTL,
       kur: form.kur ? parseFloat(form.kur) : null,
       aciklama: form.aciklama || null,
     }).eq('id', kayit.id)
 
+    // Eşli kayıt varsa (grup_id) — artık tamamı aynı tabloda (hesap_hareketler),
+    // tek bir update ile karşı bacağı senkronize edebiliriz. Eşleşme türüne göre
+    // tutar hesaplaması farklı:
     if (kayit.grup_id) {
-      if (kayit.tur !== 'Birikim (TL)') {
-        // Eşli Birikim(TL) kaydını güncelle
+      if (kayit._karsiAd === 'Banka' || kayit._karsiAd === 'Nakit') {
+        // İşlemler'den gelen "Birikim" kategorili transfer çifti — Banka/Nakit ↔
+        // Birikim (TL), ikisi de TL, simetrik (işareti ters) — basit negatif alma yeterli
+        await supabase.from('hesap_hareketler')
+          .update({ tarih: form.tarih, tutar: -yeniMiktar })
+          .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+      } else if (kayit.ad !== 'Birikim (TL)') {
+        // Birikim içi çift: TL yatırım simetrik, döviz asimetrik (TL karşılığı üzerinden)
         const tlYatirim = hesap?.doviz === 'TL'
-        const karsiMiktar = tlYatirim ? yeniIslemTL : -yeniIslemTL
-        await supabase.from('birikim_hareketler').update({
-          tarih: form.tarih,
-          miktar: karsiMiktar,
-          islem_tl: karsiMiktar,
-        }).eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+        const karsiTutar = tlYatirim ? yeniIslemTL : -yeniIslemTL
+        await supabase.from('hesap_hareketler')
+          .update({ tarih: form.tarih, tutar: karsiTutar, islem_tl: karsiTutar })
+          .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
       }
-
-      // İşlemler tablosundaki eşli kaydı güncelle (varsa)
-      // Birikim(TL) miktar > 0 → gider "Birikim", < 0 → gelir "Birikim"
-      const yeniK = Math.abs(yeniMiktar)
-      await Promise.all([
-        supabase.from('giderler').update({ tarih: form.tarih, k: yeniK }).eq('grup_id', kayit.grup_id),
-        supabase.from('gelirler').update({ tarih: form.tarih, k: yeniK }).eq('grup_id', kayit.grup_id),
-      ])
+      // kayit.ad === 'Birikim (TL)' && karşı taraf bir Birikim/Yatırım hesabıysa:
+      // eskiden olduğu gibi karşı bacak burada güncellenmez (o hesabın listesinden
+      // düzenlenmesi gerekir) — davranış değişmedi.
     }
 
     onKayit(); onKapat()
@@ -129,7 +162,7 @@ function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
-          <h3 className="font-semibold text-slate-800">✏️ {kayit.tur} — Düzenle</h3>
+          <h3 className="font-semibold text-slate-800">✏️ {kayit.ad} — Düzenle</h3>
           <p className="text-xs text-slate-400 mt-0.5">
             {kayit.miktar >= 0 ? '▲ Giriş / Alış' : '▼ Çıkış / Satış'}
             {kayit.alt_tip ? ` · ${kayit.alt_tip}` : ''}
@@ -182,8 +215,8 @@ function BirikimDuzenleFormu({ kayit, onKapat, onKayit }) {
   )
 }
 
-function IslemFormu({ onKapat, onKayit }) {
-  const [seciliHesap, setSeciliHesap] = useState(HESAPLAR[0])
+function IslemFormu({ hesapMap, onKapat, onKayit }) {
+  const [seciliHesap, setSeciliHesap] = useState(hesapMap.HESAPLAR[0])
   const [islem, setIslem] = useState('giris') // 'giris' | 'cikis' | 'alis' | 'satis'
   const [miktar, setMiktar] = useState('')
   const [islemTl, setIslemTl] = useState('')
@@ -197,7 +230,7 @@ function IslemFormu({ onKapat, onKayit }) {
 
   const hesapDegistir = (h) => {
     setSeciliHesap(h)
-    setIslem(h.doviz === 'TL' && h.tur !== 'Birikim (TL)' ? 'giris' : 'alis')
+    setIslem(h.doviz === 'TL' && h.ad !== 'Birikim (TL)' ? 'giris' : 'alis')
     setMiktar(''); setIslemTl(''); setKur('')
   }
 
@@ -209,9 +242,10 @@ function IslemFormu({ onKapat, onKayit }) {
     const tl = parseFloat(islemTl) || 0
     const k = parseFloat(kur) || null
     const tarihISO = new Date(tarih).toISOString()
+    const donem = tarihtenDonem(tarih)
 
     // TL yatırım hesabı mı? (Birikim TL hariç TL hesaplar)
-    const tlYatirim = isTL && seciliHesap.tur !== 'Birikim (TL)'
+    const tlYatirim = isTL && seciliHesap.ad !== 'Birikim (TL)'
 
     // Ana hesap kaydı
     let gercekMiktar = m
@@ -221,52 +255,59 @@ function IslemFormu({ onKapat, onKayit }) {
       gercekTL = isTL ? -m : -tl
     }
 
-    const grupId = crypto.randomUUID()
+    const altTip = islem === 'alis' ? 'Alış' : islem === 'satis' ? 'Satış' : islem === 'giris' ? 'Giriş' : 'Çıkış'
+    const anaHesapId = hesapMap.adToId[seciliHesap.ad]
+    const eslesli = seciliHesap.ad !== 'Birikim (TL)' && gercekTL !== 0
+    const grupId = eslesli ? crypto.randomUUID() : null
+
     const kayitlar = [{
+      hesap_id: anaHesapId,
+      karsi_hesap_id: eslesli ? hesapMap.birikimId : null,
+      grup_id: grupId,
       tarih: tarihISO,
-      tur: seciliHesap.tur,
-      doviz_cinsi: seciliHesap.doviz,
-      alt_tip: islem === 'alis' ? 'Alış' : islem === 'satis' ? 'Satış' : islem === 'giris' ? 'Giriş' : 'Çıkış',
-      miktar: gercekMiktar,
-      islem_tl: gercekTL,
+      donem,
+      tutar: gercekMiktar,
+      tur: 'transfer',
+      kategori: altTip,
       kur: k,
+      islem_tl: gercekTL,
       aciklama: aciklama || null,
-      grup_id: seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0 ? grupId : null,
     }]
 
     // Birikim (TL) karşı kaydı
-    if (seciliHesap.tur !== 'Birikim (TL)' && gercekTL !== 0) {
+    if (eslesli) {
       const islemAdi = islem === 'alis' ? 'alımı' : islem === 'satis' ? 'satışı' : islem === 'giris' ? 'girişi' : 'çıkışı'
       const birim = isTL ? '₺' : seciliHesap.doviz
       // TL yatırım: aynı yön (giriş=ikisi+, çıkış=ikisi-)
       // Döviz: ters yön (alış=varlık+/TL-, satış=varlık-/TL+)
-      const karsiMiktar = tlYatirim ? gercekTL : -gercekTL
+      const karsiTutar = tlYatirim ? gercekTL : -gercekTL
       kayitlar.push({
-        tarih: tarihISO,
-        tur: 'Birikim (TL)',
-        doviz_cinsi: 'TL',
-        miktar: karsiMiktar,
-        islem_tl: karsiMiktar,
-        alt_tip: seciliHesap.tur,
-        aciklama: `${Math.abs(gercekMiktar)} ${birim} ${seciliHesap.tur} ${islemAdi}`,
+        hesap_id: hesapMap.birikimId,
+        karsi_hesap_id: anaHesapId,
         grup_id: grupId,
+        tarih: tarihISO,
+        donem,
+        tutar: karsiTutar,
+        tur: 'transfer',
+        kategori: seciliHesap.ad,
+        kur: null,
+        islem_tl: karsiTutar,
+        aciklama: `${Math.abs(gercekMiktar)} ${birim} ${seciliHesap.ad} ${islemAdi}`,
       })
     }
 
-    // Yeni kayıtlar, kendi hesabındaki (tur) en büyük sira değerinden bir fazlasını alır
+    // Yeni kayıtlar, kendi hesabındaki en büyük sira değerinden bir fazlasını alır
     // → o hesabın listesinde en üstte görünür, mevcut kayıtlar update görmez
-    const turler = [...new Set(kayitlar.map(k => k.tur))]
+    const hesapIdleri = [...new Set(kayitlar.map(kt => kt.hesap_id))]
     const maxSiralar = {}
-    await Promise.all(turler.map(async (t) => {
-      const { data } = await supabase.from('birikim_hareketler')
-        .select('sira').eq('tur', t).order('sira', { ascending: false }).limit(1)
-      maxSiralar[t] = data?.[0]?.sira ?? -1
+    await Promise.all(hesapIdleri.map(async (hid) => {
+      const { data } = await supabase.from('hesap_hareketler')
+        .select('sira').eq('hesap_id', hid).order('sira', { ascending: false }).limit(1)
+      maxSiralar[hid] = data?.[0]?.sira ?? -1
     }))
-    for (const kayit of kayitlar) {
-      kayit.sira = ++maxSiralar[kayit.tur]
-    }
+    for (const kt of kayitlar) kt.sira = ++maxSiralar[kt.hesap_id]
 
-    await supabase.from('birikim_hareketler').insert(kayitlar)
+    await supabase.from('hesap_hareketler').insert(kayitlar)
     onKayit(); onKapat()
   }
 
@@ -281,12 +322,12 @@ function IslemFormu({ onKapat, onKayit }) {
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-2">Hesap</label>
             <div className="grid grid-cols-3 gap-1.5">
-              {HESAPLAR.map(h => (
-                <button key={h.tur} type="button" onClick={() => hesapDegistir(h)}
+              {hesapMap.HESAPLAR.map(h => (
+                <button key={h.ad} type="button" onClick={() => hesapDegistir(h)}
                   className={`px-2 py-1.5 rounded-xl text-xs border transition-colors text-left ${
-                    seciliHesap.tur === h.tur ? h.renk : 'border-slate-100 text-slate-500 hover:bg-slate-50'
+                    seciliHesap.ad === h.ad ? h.renk : 'border-slate-100 text-slate-500 hover:bg-slate-50'
                   }`}>
-                  {h.emoji} {h.tur.replace('Yatırım ', '')}
+                  {h.emoji} {h.ad}
                 </button>
               ))}
             </div>
@@ -296,7 +337,7 @@ function IslemFormu({ onKapat, onKayit }) {
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">İşlem</label>
             <div className="flex gap-2">
-              {(seciliHesap.tur === 'Birikim (TL)'
+              {(seciliHesap.ad === 'Birikim (TL)'
                 ? [['giris', '➕ Giriş'], ['cikis', '➖ Çıkış']]
                 : isDoviz
                   ? [['alis', '📥 Alış'], ['satis', '📤 Satış']]
@@ -350,11 +391,11 @@ function IslemFormu({ onKapat, onKayit }) {
           </div>
 
           {/* Özet */}
-          {seciliHesap.tur !== 'Birikim (TL)' && (
+          {seciliHesap.ad !== 'Birikim (TL)' && (
             <div className={`rounded-xl p-3 text-xs ${(islem === 'alis' || islem === 'giris') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
               {isDoviz
-                ? `${seciliHesap.tur} ${islem === 'alis' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'alis' ? 'azalır' : 'artar'}.`
-                : `${seciliHesap.tur} ve Birikim (TL) ${islem === 'giris' ? 'ikisi de artar.' : 'ikisi de azalır.'}`
+                ? `${seciliHesap.ad} ${islem === 'alis' ? 'artar' : 'azalır'}, Birikim (TL) ${islem === 'alis' ? 'azalır' : 'artar'}.`
+                : `${seciliHesap.ad} ve Birikim (TL) ${islem === 'giris' ? 'ikisi de artar.' : 'ikisi de azalır.'}`
               }
             </div>
           )}
@@ -375,22 +416,28 @@ export default function Birikim() {
   const [ekle, setEkle] = useState(false)
   const [duzenle, setDuzenle] = useState(null)
   const [hareketler, setHareketler] = useState([])
-  const [filtreTur, setFiltreTur] = useState('Tümü')
+  const [filtreAd, setFiltreAd] = useState('Tümü')
   const [yukleniyor, setYukleniyor] = useState(true)
   const [seciliSatirId, setSeciliSatirId] = useState(null)
+  const [hesapMap, setHesapMap] = useState(null)
+
+  useEffect(() => { hesaplarGetir().then(setHesapMap) }, [])
 
   // Filtre değişince seçimi sıfırla
-  useEffect(() => { setSeciliSatirId(null) }, [filtreTur])
+  useEffect(() => { setSeciliSatirId(null) }, [filtreAd])
 
   const yukle = useCallback(async () => {
+    if (!hesapMap) return
     setYukleniyor(true)
+    const hesapIdListesi = Object.keys(hesapMap.idToAd).map(Number).filter(id => !Number.isNaN(id))
     const SAYFA = 1000
     let tumVeriler = []
     let sayfa = 0
     while (true) {
       const { data, error } = await supabase
-        .from('birikim_hareketler')
+        .from('hesap_hareketler')
         .select('*')
+        .in('hesap_id', hesapIdListesi)
         .order('tarih', { ascending: false })
         .range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
       if (error || !data || data.length === 0) break
@@ -398,9 +445,30 @@ export default function Birikim() {
       if (data.length < SAYFA) break
       sayfa++
     }
-    setHareketler(tumVeriler)
+
+    // Eski birikim_hareketler şekline (tur, alt_tip, miktar...) çeviriyoruz ki
+    // aşağıdaki bakiye/filtre/render mantığı değişmeden çalışabilsin — yalnızca
+    // gösterim anahtarı artık doğrudan DB'deki `ad` (eski hardcoded eşleme kalktı).
+    const donusturulmus = tumVeriler.map(r => {
+      const ad = hesapMap.idToAd[r.hesap_id]
+      return {
+        id: r.id,
+        tarih: r.tarih,
+        ad,
+        doviz_cinsi: hesapMap.HESAPLAR.find(h => h.ad === ad)?.doviz || 'TL',
+        alt_tip: r.kategori,
+        miktar: r.tutar,
+        islem_tl: r.islem_tl,
+        kur: r.kur,
+        aciklama: r.aciklama,
+        grup_id: r.grup_id,
+        sira: r.sira,
+        _karsiAd: r.karsi_hesap_id != null ? hesapMap.idToAd[r.karsi_hesap_id] : null,
+      }
+    })
+    setHareketler(donusturulmus)
     setYukleniyor(false)
-  }, [])
+  }, [hesapMap])
 
   useEffect(() => { yukle() }, [yukle])
 
@@ -408,28 +476,34 @@ export default function Birikim() {
     if (!confirm('Silinsin mi?')) return
     const kayit = hareketler.find(r => r.id === id)
     if (kayit?.grup_id) {
-      await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
-      await supabase.from('giderler').delete().eq('grup_id', kayit.grup_id)
-      await supabase.from('gelirler').delete().eq('grup_id', kayit.grup_id)
+      // Eşli kayıt — artık aynı tabloda (hesap_hareketler); her iki bacak birden
+      // silinir. Bu, İşlemler'den gelen "Birikim" kategorili transfer çiftlerini de kapsar.
+      await supabase.from('hesap_hareketler').delete().eq('grup_id', kayit.grup_id)
     } else {
-      await supabase.from('birikim_hareketler').delete().eq('id', id)
+      await supabase.from('hesap_hareketler').delete().eq('id', id)
     }
     yukle()
   }
 
+  if (!hesapMap) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+
   // Bakiyeler — tüm kayıtlardan hesaplanır
   const bakiyeler = {}
-  for (const h of HESAPLAR) {
-    bakiyeler[h.tur] = hareketler.filter(r => r.tur === h.tur).reduce((s, r) => s + (r.miktar || 0), 0)
+  for (const h of hesapMap.HESAPLAR) {
+    bakiyeler[h.ad] = hareketler.filter(r => r.ad === h.ad).reduce((s, r) => s + (r.miktar || 0), 0)
   }
 
   // Filtrelenmiş + sıralanmış liste
   // Tümü: tarih sırası, Specific: sira sırası büyükten küçüğe (yoksa tarih) — en yeni işlem en yüksek sira değerini alır ve en üstte görünür
   const filtrelenmis = (() => {
-    const base = filtreTur === 'Tümü'
+    const base = filtreAd === 'Tümü'
       ? hareketler
-      : hareketler.filter(r => r.tur === filtreTur)
-    if (filtreTur === 'Tümü') return base
+      : hareketler.filter(r => r.ad === filtreAd)
+    if (filtreAd === 'Tümü') return base
     return [...base].sort((a, b) => {
       if (a.sira != null && b.sira != null) return b.sira - a.sira
       if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
@@ -437,8 +511,8 @@ export default function Birikim() {
     })
   })()
 
-  const gosterilen = filtreTur === 'Tümü' ? filtrelenmis.slice(0, 200) : filtrelenmis
-  const siralamaAktif = filtreTur !== 'Tümü'
+  const gosterilen = filtreAd === 'Tümü' ? filtrelenmis.slice(0, 200) : filtrelenmis
+  const siralamaAktif = filtreAd !== 'Tümü'
   const seciliIdx = filtrelenmis.findIndex(r => r.id === seciliSatirId)
 
   // İki kaydın yerini değiştirir.
@@ -452,15 +526,15 @@ export default function Birikim() {
     const a = liste[idxA], b = liste[idxB]
     if (a.sira != null && b.sira != null) {
       await Promise.all([
-        supabase.from('birikim_hareketler').update({ sira: b.sira }).eq('id', a.id),
-        supabase.from('birikim_hareketler').update({ sira: a.sira }).eq('id', b.id),
+        supabase.from('hesap_hareketler').update({ sira: b.sira }).eq('id', a.id),
+        supabase.from('hesap_hareketler').update({ sira: a.sira }).eq('id', b.id),
       ])
     } else {
       const yeni = [...liste]
       ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
       const n = yeni.length
       await Promise.all(
-        yeni.map((r, i) => supabase.from('birikim_hareketler').update({ sira: n - 1 - i }).eq('id', r.id))
+        yeni.map((r, i) => supabase.from('hesap_hareketler').update({ sira: n - 1 - i }).eq('id', r.id))
       )
     }
     yukle()
@@ -478,7 +552,7 @@ export default function Birikim() {
     await siraTakasEt(idx, idx + 1)
   }
 
-  const secilenHesap = filtreTur !== 'Tümü' ? HESAPLAR.find(h => h.tur === filtreTur) : null
+  const secilenHesap = filtreAd !== 'Tümü' ? hesapMap.HESAPLAR.find(h => h.ad === filtreAd) : null
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
@@ -486,7 +560,7 @@ export default function Birikim() {
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-semibold text-slate-700">Birikim & Yatırım</h2>
         <div className="flex gap-2">
-          <button onClick={() => exportExcel(hareketler)}
+          <button onClick={() => exportExcel(hareketler, hesapMap.HESAPLAR)}
             className="flex items-center gap-1 bg-slate-100 text-slate-600 text-sm px-3 py-2 rounded-xl font-medium hover:bg-slate-200">
             <Download size={15} /> Export
           </button>
@@ -499,13 +573,13 @@ export default function Birikim() {
 
       {/* Hesap özet kartları */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
-        {HESAPLAR.map(h => {
-          const bakiye = bakiyeler[h.tur] || 0
+        {hesapMap.HESAPLAR.map(h => {
+          const bakiye = bakiyeler[h.ad] || 0
           return (
-            <div key={h.tur}
-              onClick={() => setFiltreTur(f => f === h.tur ? 'Tümü' : h.tur)}
-              className={`rounded-2xl p-4 border cursor-pointer transition-all ${h.renk} ${filtreTur === h.tur ? 'ring-2 ring-blue-400' : ''}`}>
-              <p className="text-xs font-semibold opacity-60 mb-1">{h.emoji} {h.tur}</p>
+            <div key={h.ad}
+              onClick={() => setFiltreAd(f => f === h.ad ? 'Tümü' : h.ad)}
+              className={`rounded-2xl p-4 border cursor-pointer transition-all ${h.renk} ${filtreAd === h.ad ? 'ring-2 ring-blue-400' : ''}`}>
+              <p className="text-xs font-semibold opacity-60 mb-1">{h.emoji} {h.ad}</p>
               <p className="text-lg font-bold">
                 {h.doviz === 'TL' ? `₺${formatPara(bakiye)}` : `${formatPara(bakiye)} ${h.doviz}`}
               </p>
@@ -516,15 +590,15 @@ export default function Birikim() {
 
       {/* Filtre butonları */}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-        <button onClick={() => setFiltreTur('Tümü')}
+        <button onClick={() => setFiltreAd('Tümü')}
           className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 border ${
-            filtreTur === 'Tümü' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
+            filtreAd === 'Tümü' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
           }`}>Tümü</button>
-        {HESAPLAR.map(h => (
-          <button key={h.tur} onClick={() => setFiltreTur(f => f === h.tur ? 'Tümü' : h.tur)}
+        {hesapMap.HESAPLAR.map(h => (
+          <button key={h.ad} onClick={() => setFiltreAd(f => f === h.ad ? 'Tümü' : h.ad)}
             className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 border transition-colors ${
-              filtreTur === h.tur ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
-            }`}>{h.emoji} {h.tur.replace('Yatırım ', '')}</button>
+              filtreAd === h.ad ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
+            }`}>{h.emoji} {h.ad}</button>
         ))}
       </div>
 
@@ -544,7 +618,7 @@ export default function Birikim() {
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
                 <th className="text-left px-3 py-2.5 font-semibold w-[88px]">Tarih</th>
                 <th className="text-left px-3 py-2.5 font-semibold">
-                  {filtreTur === 'Tümü' ? 'Hesap' : 'İşlem'}
+                  {filtreAd === 'Tümü' ? 'Hesap' : 'İşlem'}
                 </th>
                 <th className="text-left px-3 py-2.5 font-semibold hidden sm:table-cell">Açıklama</th>
                 <th className="text-right px-3 py-2.5 font-semibold w-32">Miktar</th>
@@ -568,7 +642,7 @@ export default function Birikim() {
             </thead>
             <tbody>
               {gosterilen.map(r => {
-                const hesap = HESAPLAR.find(h => h.tur === r.tur)
+                const hesap = hesapMap.HESAPLAR.find(h => h.ad === r.ad)
                 const birim = hesap?.doviz || 'TL'
                 const isSecili = r.id === seciliSatirId
                 return (
@@ -586,10 +660,10 @@ export default function Birikim() {
                     </td>
                     {/* Hesap / İşlem tipi */}
                     <td className="px-3 py-2">
-                      {filtreTur === 'Tümü' ? (
+                      {filtreAd === 'Tümü' ? (
                         <>
                           <span className={`font-semibold ${isSecili ? 'text-amber-800' : 'text-slate-700'}`}>
-                            {hesap?.emoji} {r.tur.replace('Yatırım ', '')}
+                            {hesap?.emoji} {r.ad}
                           </span>
                           {r.alt_tip && (
                             <span className="ml-1.5 text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
@@ -656,8 +730,8 @@ export default function Birikim() {
                     {filtrelenmis.length} kayıt
                   </td>
                   <td className="px-3 py-2 text-right font-bold">
-                    <span className={bakiyeler[filtreTur] >= 0 ? 'text-green-600' : 'text-red-500'}>
-                      {bakiyeler[filtreTur] >= 0 ? '+' : ''}{formatPara(bakiyeler[filtreTur])}{' '}
+                    <span className={bakiyeler[filtreAd] >= 0 ? 'text-green-600' : 'text-red-500'}>
+                      {bakiyeler[filtreAd] >= 0 ? '+' : ''}{formatPara(bakiyeler[filtreAd])}{' '}
                       {secilenHesap.doviz !== 'TL' ? secilenHesap.doviz : '₺'}
                     </span>
                   </td>
@@ -669,12 +743,12 @@ export default function Birikim() {
         </div>
       )}
 
-      {filtreTur === 'Tümü' && filtrelenmis.length > 200 && (
+      {filtreAd === 'Tümü' && filtrelenmis.length > 200 && (
         <p className="text-center text-xs text-slate-400 py-2">İlk 200 kayıt gösteriliyor. Hesap filtresi kullanın.</p>
       )}
 
-      {ekle && <IslemFormu onKapat={() => setEkle(false)} onKayit={yukle} />}
-      {duzenle && <BirikimDuzenleFormu kayit={duzenle} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
+      {ekle && <IslemFormu hesapMap={hesapMap} onKapat={() => setEkle(false)} onKayit={yukle} />}
+      {duzenle && <BirikimDuzenleFormu kayit={duzenle} hesaplar={hesapMap.HESAPLAR} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
     </div>
   )
 }

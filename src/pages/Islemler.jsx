@@ -20,7 +20,21 @@ function donemListesi() {
   return list
 }
 
-function DuzenleFormu({ kayit, onKapat, onKayit }) {
+// Banka / Nakit / Birikim (TL) hesap id'lerini bir kere bulup önbelleğe alır
+// (yeni mimari: hesaplar + hesap_hareketler — bu ekran artık doğrudan oradan okur/yazar)
+let _hesapIdCache = null
+async function hesapIdleriGetir() {
+  if (_hesapIdCache) return _hesapIdCache
+  const { data } = await supabase.from('hesaplar').select('id, ad').in('ad', ['Banka', 'Nakit', 'Birikim (TL)'])
+  _hesapIdCache = {
+    banka: data?.find(h => h.ad === 'Banka')?.id,
+    nakit: data?.find(h => h.ad === 'Nakit')?.id,
+    birikim: data?.find(h => h.ad === 'Birikim (TL)')?.id,
+  }
+  return _hesapIdCache
+}
+
+function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
   const tur = kayit._tur
   const kategoriler = tur === 'gider' ? GIDER_KATEGORILER : GELIR_TURLERI
   const [form, setForm] = useState({
@@ -37,27 +51,30 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
     setKaydediliyor(true)
     const yeniTutar = parseFloat(form.k) || 0
     const yeniDonem = tarihtenDonem(form.tarih)
+    const isGider = tur === 'gider'
+    const hesapId = form.hesap === 'K' ? hesapIds.banka : hesapIds.nakit
+    // hesap_hareketler.tutar = hesabın kendi biriminde işaretli değişim (gider: -, gelir: +)
+    const anaTutar = isGider ? -yeniTutar : yeniTutar
 
     // Ana kaydı güncelle
-    await supabase.from(kayit._tablo).update({
+    await supabase.from('hesap_hareketler').update({
+      hesap_id: hesapId,
       tarih: form.tarih,
       donem: yeniDonem,
-      k: yeniTutar,
-      hesap: form.hesap,
-      aciklama: form.aciklama,
-      ...(tur === 'gider' ? { kategori: form.kategori } : { tur: form.kategori }),
+      tutar: anaTutar,
+      kategori: form.kategori,
+      aciklama: form.aciklama || null,
     }).eq('id', kayit.id)
 
-    // Birikim kategoriliyse eşli birikim_hareketler kaydını güncelle
+    // Eşli transfer kaydı varsa (Birikim bağlantısı) ve hâlâ Birikim kategorisindeyse
+    // karşı bacağı da güncelle — tutar simetrik (TL↔TL transfer), karsi_hesap_id de
+    // ana bacağın güncel hesabıyla senkron kalsın diye yenileniyor.
     if (kayit.grup_id && form.kategori === 'Birikim') {
-      // Gider "Birikim" → birikim_hareketler pozitif (yatırıma gelen)
-      // Gelir "Birikim" → birikim_hareketler negatif (yatırımdan çekilen)
-      const birikimMiktar = tur === 'gider' ? yeniTutar : -yeniTutar
-      await supabase.from('birikim_hareketler').update({
-        tarih: form.tarih,
-        miktar: birikimMiktar,
-        islem_tl: birikimMiktar,
-      }).eq('grup_id', kayit.grup_id)
+      const birikimTutar = isGider ? yeniTutar : -yeniTutar
+      await supabase.from('hesap_hareketler')
+        .update({ tarih: form.tarih, donem: yeniDonem, tutar: birikimTutar, karsi_hesap_id: hesapId })
+        .eq('grup_id', kayit.grup_id)
+        .neq('id', kayit.id)
     }
 
     onKayit(); onKapat()
@@ -116,28 +133,31 @@ function DuzenleFormu({ kayit, onKapat, onKayit }) {
   )
 }
 
-// "Birikim (TL)" hesabındaki en büyük sira değerinden bir fazlasını döner
-// → yeni kayıt o hesabın listesinde en üstte görünür, mevcut kayıtlar update görmez
-async function birikimSiraGetir() {
-  const { data } = await supabase.from('birikim_hareketler')
-    .select('sira').eq('tur', 'Birikim (TL)').order('sira', { ascending: false }).limit(1)
+// giderler/gelirler eşdeğeri kayıtlar artık tek tabloda (hesap_hareketler) tutuluyor.
+// Ekranda Banka+Nakit hesaplarının BİRLEŞİK listesi (dönem bazında) gösterildiği ve
+// sıralama bu birleşik liste üzerinden yönetildiği için sira de ortak bir havuzdan
+// (max+1) gelmeli — yeni kayıt en üstte görünür, mevcut kayıtlar update görmez.
+async function islemSiraGetir(donem, hesapIds) {
+  const { data } = await supabase.from('hesap_hareketler')
+    .select('sira')
+    .in('hesap_id', [hesapIds.banka, hesapIds.nakit])
+    .eq('donem', donem)
+    .order('sira', { ascending: false, nullsFirst: false })
+    .limit(1)
   return (data?.[0]?.sira ?? -1) + 1
 }
 
-// giderler/gelirler: sira, ekranda iki tablonun BİRLEŞİK listesi (dönem bazında) üzerinden
-// scoped tutuluyor — bu yüzden yeni kaydın sira'sı, o dönemde iki tabloda da görülen en
-// büyük değerden bir fazla olmalı (aksi halde iki tablodan aynı sira değeri çıkabilir).
-// Döner: yeni kayıt o dönemin listesinde en üstte görünür, mevcut kayıtlar update görmez.
-async function islemSiraGetir(donem) {
-  const [{ data: gel }, { data: gid }] = await Promise.all([
-    supabase.from('gelirler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
-    supabase.from('giderler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
-  ])
-  const maxSira = Math.max(gel?.[0]?.sira ?? -1, gid?.[0]?.sira ?? -1)
-  return maxSira + 1
+// Belirli bir hesabın (örn. Birikim (TL)) kendi listesindeki en büyük sira'dan bir
+// fazlasını döner — o hesapta yeni kayıt en üstte görünür.
+async function hesapSiraGetir(hesapId) {
+  const { data } = await supabase.from('hesap_hareketler')
+    .select('sira').eq('hesap_id', hesapId)
+    .order('sira', { ascending: false, nullsFirst: false })
+    .limit(1)
+  return (data?.[0]?.sira ?? -1) + 1
 }
 
-function IslemFormu({ tur, onKapat, onKayit }) {
+function IslemFormu({ tur, hesapIds, onKapat, onKayit }) {
   const [form, setForm] = useState({
     tarih: yerelTarih(new Date()),
     kategori: tur === 'gider' ? GIDER_KATEGORILER[0] : GELIR_TURLERI[0],
@@ -152,35 +172,41 @@ function IslemFormu({ tur, onKapat, onKayit }) {
     setKaydediliyor(true)
     const tutar = parseFloat(form.k) || 0
     const donem = tarihtenDonem(form.tarih)
-    const sira = await islemSiraGetir(donem)
-    const kayit = { tarih: form.tarih, donem, k: tutar, aciklama: form.aciklama, sira }
+    const isGider = tur === 'gider'
+    const hesapId = form.hesap === 'K' ? hesapIds.banka : hesapIds.nakit
 
-    if (tur === 'gider') {
-      const grupId = form.kategori === 'Birikim' ? crypto.randomUUID() : null
-      await supabase.from('giderler').insert({ ...kayit, kategori: form.kategori, hesap: form.hesap, grup_id: grupId })
-
-      // Gider "Birikim" → Birikim (TL) hesabına pozitif kayıt
-      if (form.kategori === 'Birikim') {
-        await supabase.from('birikim_hareketler').insert({
-          tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
-          alt_tip: 'Birikim', miktar: tutar, islem_tl: tutar,
-          aciklama: 'yatırıma gelen', grup_id: grupId,
-          sira: await birikimSiraGetir(),
-        })
-      }
+    if (form.kategori === 'Birikim') {
+      // Bu kavramsal olarak bir TRANSFER'dir: Banka/Nakit ↔ Birikim (TL).
+      // Yeni mimaride ayrı bir gider/gelir + birikim_hareketler eşlemesi yerine,
+      // doğrudan hesap_hareketler içinde grup_id ile eşli simetrik bir çift oluşturulur.
+      //   Gider "Birikim" → paradan çıkış (-), Birikim'e giriş (+)  ("yatırıma gelen")
+      //   Gelir "Birikim" → Birikim'den çıkış (-), hesaba giriş (+) ("yatırımdan çekilen")
+      const grupId = crypto.randomUUID()
+      const anaTutar = isGider ? -tutar : tutar
+      const birikimTutar = isGider ? tutar : -tutar
+      const [siraAna, siraBirikim] = await Promise.all([
+        islemSiraGetir(donem, hesapIds),
+        hesapSiraGetir(hesapIds.birikim),
+      ])
+      await supabase.from('hesap_hareketler').insert([
+        {
+          hesap_id: hesapId, karsi_hesap_id: hesapIds.birikim, grup_id: grupId,
+          tarih: form.tarih, donem, tutar: anaTutar, tur: 'transfer',
+          kategori: 'Birikim', aciklama: form.aciklama || null, sira: siraAna,
+        },
+        {
+          hesap_id: hesapIds.birikim, karsi_hesap_id: hesapId, grup_id: grupId,
+          tarih: form.tarih, donem, tutar: birikimTutar, tur: 'transfer',
+          kategori: 'Birikim', aciklama: isGider ? 'yatırıma gelen' : 'yatırımdan çekilen', sira: siraBirikim,
+        },
+      ])
     } else {
-      const grupId = form.kategori === 'Birikim' ? crypto.randomUUID() : null
-      await supabase.from('gelirler').insert({ ...kayit, tur: form.kategori, hesap: form.hesap, grup_id: grupId })
-
-      // Gelir "Birikim" → Birikim (TL) hesabından negatif kayıt
-      if (form.kategori === 'Birikim') {
-        await supabase.from('birikim_hareketler').insert({
-          tarih: form.tarih, tur: 'Birikim (TL)', doviz_cinsi: 'TL',
-          alt_tip: 'Birikim', miktar: -tutar, islem_tl: -tutar,
-          aciklama: 'yatırım hesabından çekilen', grup_id: grupId,
-          sira: await birikimSiraGetir(),
-        })
-      }
+      const sira = await islemSiraGetir(donem, hesapIds)
+      await supabase.from('hesap_hareketler').insert({
+        hesap_id: hesapId, karsi_hesap_id: null, grup_id: null,
+        tarih: form.tarih, donem, tutar: isGider ? -tutar : tutar,
+        tur, kategori: form.kategori, aciklama: form.aciklama || null, sira,
+      })
     }
 
     onKayit()
@@ -256,24 +282,41 @@ export default function Islemler() {
   const [islemler, setIslemler] = useState([])
   const [yukleniyor, setYukleniyor] = useState(true)
   const [seciliSatirId, setSeciliSatirId] = useState(null)
+  const [hesapIds, setHesapIds] = useState(null)
+
+  useEffect(() => { hesapIdleriGetir().then(setHesapIds) }, [])
 
   const yukle = useCallback(async () => {
+    if (!hesapIds) return
     setYukleniyor(true)
-    const [{ data: gel }, { data: gid }] = await Promise.all([
-      supabase.from('gelirler').select('*').eq('donem', donem).order('sira', { ascending: false, nullsFirst: false }).order('tarih', { ascending: false }),
-      supabase.from('giderler').select('*').eq('donem', donem).order('sira', { ascending: false, nullsFirst: false }).order('tarih', { ascending: false }),
-    ])
-    const birlesik = [
-      ...(gel || []).map(r => ({ ...r, _tur: 'gelir', _tablo: 'gelirler', kategori: r.tur })),
-      ...(gid || []).map(r => ({ ...r, _tur: 'gider', _tablo: 'giderler' })),
-    ].sort((a, b) => {
-      if (a.sira != null && b.sira != null) return b.sira - a.sira
-      if (a.sira == null && b.sira == null) return new Date(b.tarih) - new Date(a.tarih)
-      return a.sira != null ? -1 : 1
-    })
+    const { data } = await supabase
+      .from('hesap_hareketler')
+      .select('*')
+      .in('hesap_id', [hesapIds.banka, hesapIds.nakit])
+      .eq('donem', donem)
+      .order('sira', { ascending: false, nullsFirst: false })
+      .order('tarih', { ascending: false })
+
+    const birlesik = (data || [])
+      // Banka↔Nakit iç transferleri (eski nk_transferler) bu listede gösterilmez —
+      // yalnızca gider/gelir ve "Birikim" kategorili Banka/Nakit↔Birikim(TL) transfer
+      // çiftleri burada (gider/gelir muadili olarak) yer alır.
+      .filter(r => r.tur !== 'transfer' || r.karsi_hesap_id === hesapIds.birikim)
+      .map(r => ({
+        id: r.id,
+        tarih: r.tarih,
+        donem: r.donem,
+        k: Math.abs(r.tutar || 0),
+        hesap: r.hesap_id === hesapIds.banka ? 'K' : 'N',
+        kategori: r.kategori,
+        aciklama: r.aciklama,
+        sira: r.sira,
+        grup_id: r.grup_id,
+        _tur: r.tur === 'transfer' ? (r.tutar < 0 ? 'gider' : 'gelir') : r.tur,
+      }))
     setIslemler(birlesik)
     setYukleniyor(false)
-  }, [donem])
+  }, [donem, hesapIds])
 
   useEffect(() => { yukle() }, [yukle])
   // Dönem değişince seçimi sıfırla
@@ -281,19 +324,21 @@ export default function Islemler() {
 
   const DONEMLER = donemListesi()
 
-  const sil = async (tablo, id) => {
+  const sil = async (id) => {
     if (!confirm('Bu işlem silinsin mi?')) return
-    const kayit = islemler.find(r => r._tablo === tablo && r.id === id)
-    await supabase.from(tablo).delete().eq('id', id)
+    const kayit = islemler.find(r => r.id === id)
     if (kayit?.grup_id) {
-      await supabase.from('birikim_hareketler').delete().eq('grup_id', kayit.grup_id)
+      // Eşli transfer ise (Birikim bağlantısı) her iki bacağı birden sil
+      await supabase.from('hesap_hareketler').delete().eq('grup_id', kayit.grup_id)
+    } else {
+      await supabase.from('hesap_hareketler').delete().eq('id', id)
     }
     yukle()
   }
 
-  const satirKey = (r) => `${r._tablo}-${r.id}`
+  const satirKey = (r) => String(r.id)
 
-  // İki kaydın yerini değiştirir (farklı tablolarda olabilirler).
+  // İki kaydın yerini değiştirir.
   // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
   // - sira hiç atanmamışsa (null): ilk kullanımda, o anki görüntülenen sırayı esas alıp
   //   (takas uygulanmış haliyle) tüm listeyi azalan şekilde normalize eder
@@ -303,15 +348,15 @@ export default function Islemler() {
     const a = liste[idxA], b = liste[idxB]
     if (a.sira != null && b.sira != null) {
       await Promise.all([
-        supabase.from(a._tablo).update({ sira: b.sira }).eq('id', a.id),
-        supabase.from(b._tablo).update({ sira: a.sira }).eq('id', b.id),
+        supabase.from('hesap_hareketler').update({ sira: b.sira }).eq('id', a.id),
+        supabase.from('hesap_hareketler').update({ sira: a.sira }).eq('id', b.id),
       ])
     } else {
       const yeni = [...liste]
       ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
       const n = yeni.length
       await Promise.all(
-        yeni.map((r, i) => supabase.from(r._tablo).update({ sira: n - 1 - i }).eq('id', r.id))
+        yeni.map((r, i) => supabase.from('hesap_hareketler').update({ sira: n - 1 - i }).eq('id', r.id))
       )
     }
     yukle()
@@ -470,7 +515,7 @@ export default function Islemler() {
                           className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
                           <Pencil size={12} />
                         </button>
-                        <button onClick={() => sil(r._tablo, r.id)}
+                        <button onClick={() => sil(r.id)}
                           className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
                           <Trash2 size={12} />
                         </button>
@@ -495,8 +540,8 @@ export default function Islemler() {
         </div>
       )}
 
-      {form && <IslemFormu tur={form} onKapat={() => setForm(null)} onKayit={yukle} />}
-      {duzenle && <DuzenleFormu kayit={duzenle} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
+      {form && <IslemFormu tur={form} hesapIds={hesapIds} onKapat={() => setForm(null)} onKayit={yukle} />}
+      {duzenle && <DuzenleFormu kayit={duzenle} hesapIds={hesapIds} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
     </div>
   )
 }

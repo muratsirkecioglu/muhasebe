@@ -5,7 +5,20 @@ import { Landmark, Banknote, ArrowLeftRight, Settings, CreditCard, TrendingDown,
 import CoinIcon from '../components/CoinIcon'
 import TarihInput from '../components/TarihInput'
 
-function TransferFormu({ onKapat, onKayit }) {
+// Görsel meta verisi yoksa kullanılacak varsayılanlar (Birikim.jsx ile aynı)
+const VARSAYILAN_EMOJI = '💼'
+const VARSAYILAN_RENK = 'bg-slate-50 border-slate-200 text-slate-700'
+
+// Kişi/Banka/Nakit/Birikim hareketlerinde "hesap başına en yüksek sira" deseni
+// (Islemler.jsx / Birikim.jsx / BorcAlacak.jsx ile aynı)
+async function hesapHareketSiraGetir(hesapId) {
+  const { data } = await supabase.from('hesap_hareketler')
+    .select('sira').eq('hesap_id', hesapId)
+    .order('sira', { ascending: false }).limit(1)
+  return (data?.[0]?.sira ?? -1) + 1
+}
+
+function TransferFormu({ hesapIds, onKapat, onKayit }) {
   const [yon, setYon] = useState('cek')
   const [tutar, setTutar] = useState('')
   const [tarih, setTarih] = useState(yerelTarih(new Date()))
@@ -17,12 +30,30 @@ function TransferFormu({ onKapat, onKayit }) {
     const t = parseFloat(tutar) || 0
     const d = new Date(tarih)
     const donem = d.getFullYear() * 100 + d.getMonth() + 1
-    // K = nakitten bankaya yükleme, N = bankadan nakit çekme
-    await supabase.from('nk_transferler').insert({
-      tarih, donem,
-      k: yon === 'yukle' ? t : 0,  // nakitten bankaya → banka artar
-      n: yon === 'cek' ? t : 0,    // bankadan nakite → nakit artar
-    })
+    // Yeni mimaride gerçek Banka↔Nakit iç transferleri, Birikim/İşlemler'deki
+    // gibi grup_id ile eşli simetrik bir çift olarak hesap_hareketler'e yazılır
+    // (bkz. Hesap.jsx'in bu çiftleri nasıl okuyup transferNet'e topladığı).
+    //   'yukle' = nakitten bankaya yükleme → banka artar (+), nakit azalır (-)
+    //   'cek'   = bankadan nakit çekme    → banka azalır (-), nakit artar (+)
+    const grupId = crypto.randomUUID()
+    const bankaTutar = yon === 'yukle' ? t : -t
+    const nakitTutar = -bankaTutar
+    const [siraBanka, siraNakit] = await Promise.all([
+      hesapHareketSiraGetir(hesapIds.banka),
+      hesapHareketSiraGetir(hesapIds.nakit),
+    ])
+    await supabase.from('hesap_hareketler').insert([
+      {
+        hesap_id: hesapIds.banka, karsi_hesap_id: hesapIds.nakit, grup_id: grupId,
+        tarih, donem, tutar: bankaTutar, tur: 'transfer', kategori: null,
+        aciklama: yon === 'yukle' ? 'Nakitten bankaya yükleme' : 'Bankadan nakit çekme', sira: siraBanka,
+      },
+      {
+        hesap_id: hesapIds.nakit, karsi_hesap_id: hesapIds.banka, grup_id: grupId,
+        tarih, donem, tutar: nakitTutar, tur: 'transfer', kategori: null,
+        aciklama: yon === 'yukle' ? 'Nakitten bankaya yükleme' : 'Bankadan nakit çekme', sira: siraNakit,
+      },
+    ])
     onKayit()
   }
 
@@ -115,7 +146,9 @@ function BaslangicFormu({ mevcutBanka, mevcutNakit, onKapat, onKayit }) {
 export default function Dashboard() {
   const [bakiye, setBakiye] = useState({ K: 0, N: 0, TL: 0 })
   const [baslangic, setBaslangic] = useState({ banka: 0, nakit: 0 })
+  const [hesapIds, setHesapIds] = useState({ banka: null, nakit: null })
   const [birikimOzet, setBirikimOzet] = useState({})
+  const [birikimHesaplar, setBirikimHesaplar] = useState([]) // [{ id, ad, doviz_cinsi, emoji, renk }] — Birikim (TL) kökü + alt hesaplar (DB-driven)
   const [borcOzet, setBorcOzet] = useState({}) // { [doviz]: { kkBorcu, kisiBorc, kisiAlacak } }
   const [transfer, setTransfer] = useState(false)
   const [baslangicFormu, setBaslangicFormu] = useState(false)
@@ -124,12 +157,14 @@ export default function Dashboard() {
   const yukle = async () => {
     setYukleniyor(true)
 
-    async function tumunuCek(tablo, kolonlar) {
+    async function tumunuCek(tablo, kolonlar, filtreFn) {
       const SAYFA = 1000
       let tumVeriler = []
       let sayfa = 0
       while (true) {
-        const { data, error } = await supabase.from(tablo).select(kolonlar).range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
+        let q = supabase.from(tablo).select(kolonlar)
+        if (filtreFn) q = filtreFn(q)
+        const { data, error } = await q.range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
         if (error || !data || data.length === 0) break
         tumVeriler = [...tumVeriler, ...data]
         if (data.length < SAYFA) break
@@ -138,18 +173,24 @@ export default function Dashboard() {
       return tumVeriler
     }
 
-    const [ayarlarRes, gelirData, giderData, nkData, birikimData,
+    // Yeni mimari — Banka/Nakit/Birikim (TL) ve birikim alt-hesap id'lerini, kişi
+    // borç hesaplarını ve (değişmeyen) KK verilerini paralel çek
+    const [ayarlarRes, hesapListRes, kisiHesaplarRes,
            borcHesaplarRes, borcKalemlerRes, borcHarcamalarRes] = await Promise.all([
       supabase.from('ayarlar').select('anahtar, deger'),
-      tumunuCek('gelirler', 'k, hesap'),
-      tumunuCek('giderler', 'k, hesap'),
-      tumunuCek('nk_transferler', 'k, n'),
-      tumunuCek('birikim_hareketler', 'tur, miktar'),
+      supabase.from('hesaplar').select('id, ad, doviz_cinsi, emoji, renk').in('ad', ['Banka', 'Nakit', 'Birikim (TL)']),
+      supabase.from('hesaplar').select('id, doviz_cinsi').eq('tip', 'borc').eq('aktif', true),
       supabase.from('borc_hesaplar').select('id, tip, doviz_cinsi').eq('aktif', true),
       supabase.from('borc_kalemler').select('hesap_id, tutar, odendi'),
       supabase.from('borc_harcamalar').select('hesap_id, tutar, ekstre_kesildi'),
     ])
     const ayarlarData = ayarlarRes.data
+    const hesapList = hesapListRes.data || []
+    const bankaId = hesapList.find(h => h.ad === 'Banka')?.id
+    const nakitId = hesapList.find(h => h.ad === 'Nakit')?.id
+    const birikimRoot = hesapList.find(h => h.ad === 'Birikim (TL)')
+    const birikimId = birikimRoot?.id
+    setHesapIds({ banka: bankaId, nakit: nakitId })
 
     // Başlangıç bakiyeleri
     const ayarMap = {}
@@ -158,27 +199,55 @@ export default function Dashboard() {
     const baslangicNakit = ayarMap['baslangic_nakit'] || 0
     setBaslangic({ banka: baslangicBanka, nakit: baslangicNakit })
 
-    // K/N ayrımına göre tüm hareketler
-    const bankaGelir = (gelirData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
-    const bankaGider = (giderData || []).filter(r => r.hesap === 'K').reduce((s, r) => s + (r.k || 0), 0)
-    const nakitGelir = (gelirData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
-    const nakitGider = (giderData || []).filter(r => r.hesap === 'N').reduce((s, r) => s + (r.k || 0), 0)
-    // NK: K = nakitten bankaya yükleme, N = bankadan nakit çekme
-    const nkYuklenen = (nkData || []).reduce((s, r) => s + (r.k || 0), 0) // banka artar, nakit azalır
-    const nkCekilen  = (nkData || []).reduce((s, r) => s + (r.n || 0), 0) // banka azalır, nakit artar
+    // Banka/Nakit kümülatif bakiyesi — Hesap.jsx'teki okuma mantığıyla birebir aynı:
+    // gelir/gider/Birikim-kategorili-transfer satırlarının net katkısı doğrudan
+    // (işaretli) tutar'dır; gerçek Banka↔Nakit iç transferleri simetrik çift olduğundan
+    // sadece Banka bacağından sayılır (transferNet).
+    const hareketler = await tumunuCek('hesap_hareketler', 'hesap_id, karsi_hesap_id, tutar, tur',
+      q => q.in('hesap_id', [bankaId, nakitId]))
+    let bankaNet = 0, nakitNet = 0, transferNet = 0
+    for (const r of hareketler) {
+      const hesapK = r.hesap_id === bankaId
+      if (r.tur === 'gelir' || r.tur === 'gider' || (r.tur === 'transfer' && r.karsi_hesap_id === birikimId)) {
+        if (hesapK) bankaNet += r.tutar || 0
+        else nakitNet += r.tutar || 0
+      } else if (r.tur === 'transfer' && hesapK) {
+        // gerçek Banka↔Nakit iç transferi
+        transferNet += r.tutar || 0
+      }
+    }
+    const bankaK = baslangicBanka + bankaNet + transferNet
+    const nakitN = baslangicNakit + nakitNet - transferNet
 
-    const bankaK = baslangicBanka + bankaGelir - bankaGider + nkYuklenen - nkCekilen
-    const nakitN = baslangicNakit + nakitGelir - nakitGider - nkYuklenen + nkCekilen
+    // Birikim özeti — tamamen DB-driven: Birikim (TL) kökü + altındaki birikim/yatırım
+    // hesapları `hesaplar` tablosundan dinamik çekilir (yeni hesap eklemek için kod
+    // değişikliği gerekmez), gösterim anahtarı olarak doğrudan `ad` kullanılır.
+    const { data: birikimAltlar } = await supabase.from('hesaplar')
+      .select('id, ad, doviz_cinsi, emoji, renk')
+      .eq('ust_hesap_id', birikimId)
+      .in('tip', ['birikim', 'yatirim'])
+      .eq('aktif', true)
+      .order('sira')
+    const birikimListesi = [birikimRoot, ...(birikimAltlar || [])].filter(Boolean)
+    setBirikimHesaplar(birikimListesi)
 
-    // Birikim özeti
+    const idToAd = {}
+    for (const h of birikimListesi) idToAd[h.id] = h.ad
+    const birikimIdleri = birikimListesi.map(h => h.id)
+    const birikimHareketleri = birikimIdleri.length
+      ? await tumunuCek('hesap_hareketler', 'hesap_id, tutar', q => q.in('hesap_id', birikimIdleri))
+      : []
     const ozet = {}
-    for (const r of birikimData || []) {
-      ozet[r.tur] = (ozet[r.tur] || 0) + (r.miktar || 0)
+    for (const r of birikimHareketleri) {
+      const ad = idToAd[r.hesap_id]
+      if (!ad) continue
+      ozet[ad] = (ozet[ad] || 0) + (r.tutar || 0)
     }
 
-    // TL toplam — Birikim (TL) + tüm TL yatırım hesapları
-    const TL_DAHIL = ['Birikim (TL)', 'Yatırım (İnşaat)', 'Yatırım (Hayvancılık)', 'Yatırım (Şirketi Hayriyye)', 'Yatırım (Palandora)', 'Yatırım (Al-Sat)']
-    const birikimTL = TL_DAHIL.reduce((s, tur) => s + (ozet[tur] || 0), 0)
+    // TL toplam — Birikim (TL) + döviz_cinsi='TL' olan tüm alt hesaplar (yatırımlar dahil)
+    const birikimTL = birikimListesi
+      .filter(h => h.doviz_cinsi === 'TL')
+      .reduce((s, h) => s + (ozet[h.ad] || 0), 0)
 
     setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })
     setBirikimOzet(ozet)
@@ -187,13 +256,14 @@ export default function Dashboard() {
     const bHesaplar = borcHesaplarRes.data || []
     const bKalemler = borcKalemlerRes.data || []
     const bHarcamalar = borcHarcamalarRes.data || []
+    const kisiHesaplar = kisiHesaplarRes.data || []
 
     const borcOzetMap = {}
     const ensureKey = (doviz) => {
       if (!borcOzetMap[doviz]) borcOzetMap[doviz] = { kkBorcu: 0, kisiBorc: 0, kisiAlacak: 0 }
     }
 
-    // KK hesaplar
+    // KK hesaplar — değişmedi (borc_hesaplar/borc_kalemler/borc_harcamalar, tip='kk')
     for (const h of bHesaplar.filter(h => h.tip === 'kk')) {
       const doviz = h.doviz_cinsi || 'TL'
       ensureKey(doviz)
@@ -206,15 +276,24 @@ export default function Dashboard() {
       borcOzetMap[doviz].kkBorcu += kalemBorcu + bekleyenHarcama
     }
 
-    // Kişi hesaplar
-    for (const h of bHesaplar.filter(h => h.tip === 'kisi')) {
-      const doviz = h.doviz_cinsi || 'TL'
-      ensureKey(doviz)
-      const bak = bKalemler
-        .filter(k => k.hesap_id === h.id)
-        .reduce((s, k) => s + (k.tutar || 0), 0)
-      if (bak > 0) borcOzetMap[doviz].kisiBorc += bak
-      else if (bak < 0) borcOzetMap[doviz].kisiAlacak += Math.abs(bak)
+    // Kişi hesaplar — artık hesaplar (tip='borc') + hesap_hareketler üzerinden okunuyor.
+    // AŞAMA 6 işaret çevirisi: yeni modelde pozitif bakiye = "bana borçlular" (alacak),
+    // eski gösterimde ise pozitif = "ben borçluyum" — bu yüzden -(toplam) ile eski
+    // gösterim işaretine çeviriyoruz (BorcAlacak.jsx'teki shim ile aynı).
+    if (kisiHesaplar.length) {
+      const kisiIdleri = kisiHesaplar.map(h => h.id)
+      const kisiHareketleri = await tumunuCek('hesap_hareketler', 'hesap_id, tutar', q => q.in('hesap_id', kisiIdleri))
+      const kisiToplam = {}
+      for (const r of kisiHareketleri) {
+        kisiToplam[r.hesap_id] = (kisiToplam[r.hesap_id] || 0) + (r.tutar || 0)
+      }
+      for (const h of kisiHesaplar) {
+        const doviz = h.doviz_cinsi || 'TL'
+        ensureKey(doviz)
+        const bak = -(kisiToplam[h.id] || 0)
+        if (bak > 0) borcOzetMap[doviz].kisiBorc += bak
+        else if (bak < 0) borcOzetMap[doviz].kisiAlacak += Math.abs(bak)
+      }
     }
 
     setBorcOzet(borcOzetMap)
@@ -268,45 +347,43 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Döviz Varlıkları */}
+      {/* Döviz Varlıkları — tamamen DB-driven (hesaplar tablosundaki birikim/yatırım
+          alt hesapları + emoji/renk kolonları): yeni hesap eklemek için kod değişikliği gerekmez */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <CoinIcon size={15} className="text-slate-400" />
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Döviz & Fiziki Varlıklar</h2>
         </div>
-        {[
-          { tur: 'Altın Fiziki', birim: 'gr', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
-          { tur: 'Altın Banka',  birim: 'gr', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
-          { tur: 'GMS/Gümüş',   birim: 'gr', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
-          { tur: 'USD',          birim: '$',  emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
-          { tur: 'EUR',          birim: '€',  emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
-          { tur: 'GBP',          birim: '£',  emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
-        ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).length === 0 ? (
-          <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
-            Henüz varlık kaydı yok.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {/* Birikim (TL) — ilk kart */}
-            <div className="rounded-2xl p-4 border bg-blue-50 border-blue-100 text-blue-800">
-              <p className="text-xs font-semibold opacity-60 mb-1">💰 Birikim (TL)</p>
-              <p className="text-xl font-bold">₺{formatPara(birikimOzet['Birikim (TL)'] || 0)}</p>
-            </div>
-            {[
-              { tur: 'ALT(F)', birim: 'ALT', emoji: '🥇', renk: 'bg-yellow-50 border-yellow-100 text-yellow-800' },
-              { tur: 'ALT(H)', birim: 'ALT', emoji: '🏦', renk: 'bg-amber-50 border-amber-100 text-amber-800' },
-              { tur: 'GMS(H)', birim: 'GMS', emoji: '🪙', renk: 'bg-slate-50 border-slate-200 text-slate-700' },
-              { tur: 'USD',    birim: 'USD', emoji: '💵', renk: 'bg-green-50 border-green-100 text-green-800' },
-              { tur: 'EUR',    birim: 'EUR', emoji: '💶', renk: 'bg-indigo-50 border-indigo-100 text-indigo-800' },
-              { tur: 'GBP',    birim: 'GBP', emoji: '💷', renk: 'bg-purple-50 border-purple-100 text-purple-800' },
-            ].filter(v => birikimOzet[v.tur] && birikimOzet[v.tur] !== 0).map(v => (
-              <div key={v.tur} className={`rounded-2xl p-4 border ${v.renk}`}>
-                <p className="text-xs font-semibold opacity-60 mb-1">{v.emoji} {v.tur}</p>
-                <p className="text-xl font-bold">{formatPara(birikimOzet[v.tur])} {v.birim}</p>
+        {(() => {
+          const birikimRootHesap = birikimHesaplar.find(h => h.ad === 'Birikim (TL)')
+          const dovizHesaplar = birikimHesaplar
+            .filter(h => h.ad !== 'Birikim (TL)' && h.doviz_cinsi !== 'TL')
+            .filter(h => birikimOzet[h.ad] && birikimOzet[h.ad] !== 0)
+
+          if (dovizHesaplar.length === 0) {
+            return (
+              <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">
+                Henüz varlık kaydı yok.
               </div>
-            ))}
-          </div>
-        )}
+            )
+          }
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {birikimRootHesap && (
+                <div className={`rounded-2xl p-4 border ${birikimRootHesap.renk || VARSAYILAN_RENK}`}>
+                  <p className="text-xs font-semibold opacity-60 mb-1">{birikimRootHesap.emoji || VARSAYILAN_EMOJI} {birikimRootHesap.ad}</p>
+                  <p className="text-xl font-bold">₺{formatPara(birikimOzet[birikimRootHesap.ad] || 0)}</p>
+                </div>
+              )}
+              {dovizHesaplar.map(h => (
+                <div key={h.ad} className={`rounded-2xl p-4 border ${h.renk || VARSAYILAN_RENK}`}>
+                  <p className="text-xs font-semibold opacity-60 mb-1">{h.emoji || VARSAYILAN_EMOJI} {h.ad}</p>
+                  <p className="text-xl font-bold">{formatPara(birikimOzet[h.ad])} {h.doviz_cinsi}</p>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Borç & Alacak */}
@@ -355,7 +432,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {transfer && <TransferFormu onKapat={() => setTransfer(false)} onKayit={() => { setTransfer(false); yukle() }} />}
+      {transfer && <TransferFormu hesapIds={hesapIds} onKapat={() => setTransfer(false)} onKayit={() => { setTransfer(false); yukle() }} />}
       {baslangicFormu && (
         <BaslangicFormu
           mevcutBanka={baslangic.banka}

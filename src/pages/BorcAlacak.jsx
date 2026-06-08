@@ -20,19 +20,47 @@ async function borcKalemMaxSira(hesapId) {
   return data?.[0]?.sira ?? -1
 }
 
+// Kişi hesapları artık hesap_hareketler'de tutuluyor (yeni mimari) — aynı
+// "hesap başına en yüksek sira" deseni, sadece tablo farklı.
+async function hesapHareketMaxSira(hesapId) {
+  const { data } = await supabase.from('hesap_hareketler')
+    .select('sira').eq('hesap_id', hesapId)
+    .order('sira', { ascending: false }).limit(1)
+  return data?.[0]?.sira ?? -1
+}
+
 // Islemler ekranı, giderler+gelirler'i dönem bazında BİRLEŞİK liste olarak gösterip
 // sira'yı bu birleşik liste üzerinden yönetiyor. Buradan giderler tablosuna toplu kayıt
 // eklerken de aynı sira havuzunu kullanmamız gerekir (yoksa iki tablodan çakışan değerler
 // çıkabilir). Verilen dönemlerin her biri için iki tabloda görülen en yüksek sira'yı bulur.
-async function islemMaxSiralar(donemler) {
+// KK ekstre kesildiğinde Banka hesabından çıkışı temsil eden satırlar artık eski
+// 'giderler' tablosu yerine doğrudan hesap_hareketler'e (Banka hesabına, tur='gider')
+// yazılıyor — Islemler/Dashboard/Hesap zaten yalnızca hesap_hareketler okuduğundan,
+// K bakiyesinin bu ödemelerle doğru düşmesi için bu satırların orada görünmesi gerekiyor.
+let _knIdCache = null
+async function knIdleriGetir() {
+  if (_knIdCache) return _knIdCache
+  const { data } = await supabase.from('hesaplar').select('id, ad').in('ad', ['Banka', 'Nakit'])
+  _knIdCache = {
+    banka: data?.find(h => h.ad === 'Banka')?.id ?? null,
+    nakit: data?.find(h => h.ad === 'Nakit')?.id ?? null,
+  }
+  return _knIdCache
+}
+
+// Islemler.jsx'teki islemSiraGetir ile aynı mantık: Banka+Nakit BİRLEŞİK havuzunda
+// dönem bazlı en yüksek sira (Islemler ekranında bu satırlar o ortak listede görünür).
+async function knMaxSiralar(donemler, ids) {
   const benzersiz = [...new Set(donemler)]
   const sonuc = {}
   await Promise.all(benzersiz.map(async (donem) => {
-    const [{ data: gel }, { data: gid }] = await Promise.all([
-      supabase.from('gelirler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
-      supabase.from('giderler').select('sira').eq('donem', donem).order('sira', { ascending: false }).limit(1),
-    ])
-    sonuc[donem] = Math.max(gel?.[0]?.sira ?? -1, gid?.[0]?.sira ?? -1)
+    const { data } = await supabase.from('hesap_hareketler')
+      .select('sira')
+      .in('hesap_id', [ids.banka, ids.nakit])
+      .eq('donem', donem)
+      .order('sira', { ascending: false, nullsFirst: false })
+      .limit(1)
+    sonuc[donem] = data?.[0]?.sira ?? -1
   }))
   return sonuc
 }
@@ -45,13 +73,31 @@ function HesapFormu({ onKapat, onKayit }) {
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
-    await supabase.from('borc_hesaplar').insert({
-      ad: form.ad.trim(),
-      tip: form.tip,
-      doviz_cinsi: form.doviz_cinsi,
-      ekstre_gun: form.tip === 'kk' && form.ekstre_gun ? parseInt(form.ekstre_gun) : null,
-      aciklama: form.aciklama || null,
-    })
+    if (form.tip === 'kisi') {
+      // Kişi hesapları artık hesaplar tablosunda (tip='borc'), Birikim (TL)'nin
+      // altında — mevcut tohum verilerle aynı desen (bkz. supabase-hesap-mimarisi.sql)
+      const { data: kok } = await supabase.from('hesaplar').select('id').eq('ad', 'Birikim (TL)').single()
+      const { data: kardesler } = await supabase.from('hesaplar').select('sira').eq('ust_hesap_id', kok?.id ?? -1)
+        .order('sira', { ascending: false }).limit(1)
+      const sira = (kardesler?.[0]?.sira ?? 0) + 1
+      await supabase.from('hesaplar').insert({
+        ad: form.ad.trim(),
+        ust_hesap_id: kok?.id ?? null,
+        tip: 'borc',
+        doviz_cinsi: form.doviz_cinsi,
+        aktif: true,
+        sira,
+        aciklama: form.aciklama || null,
+      })
+    } else {
+      await supabase.from('borc_hesaplar').insert({
+        ad: form.ad.trim(),
+        tip: form.tip,
+        doviz_cinsi: form.doviz_cinsi,
+        ekstre_gun: form.tip === 'kk' && form.ekstre_gun ? parseInt(form.ekstre_gun) : null,
+        aciklama: form.aciklama || null,
+      })
+    }
     onKayit(); onKapat()
   }
 
@@ -116,7 +162,6 @@ function HesapFormu({ onKapat, onKayit }) {
 function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
   const [form, setForm] = useState({
     ad: hesap.ad,
-    tip: hesap.tip,
     doviz_cinsi: hesap.doviz_cinsi,
     ekstre_gun: hesap.ekstre_gun || '',
     aciklama: hesap.aciklama || '',
@@ -126,13 +171,22 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
-    await supabase.from('borc_hesaplar').update({
-      ad: form.ad.trim(),
-      tip: form.tip,
-      doviz_cinsi: form.doviz_cinsi,
-      ekstre_gun: form.tip === 'kk' && form.ekstre_gun ? parseInt(form.ekstre_gun) : null,
-      aciklama: form.aciklama || null,
-    }).eq('id', hesap.id)
+    if (hesap.tip === 'kisi') {
+      // Kişi hesapları artık hesaplar tablosunda (tip='borc') tutuluyor
+      await supabase.from('hesaplar').update({
+        ad: form.ad.trim(),
+        doviz_cinsi: form.doviz_cinsi,
+        aciklama: form.aciklama || null,
+      }).eq('id', hesap.id)
+    } else {
+      await supabase.from('borc_hesaplar').update({
+        ad: form.ad.trim(),
+        tip: hesap.tip,
+        doviz_cinsi: form.doviz_cinsi,
+        ekstre_gun: form.ekstre_gun ? parseInt(form.ekstre_gun) : null,
+        aciklama: form.aciklama || null,
+      }).eq('id', hesap.id)
+    }
     onKayit(); onKapat()
   }
 
@@ -145,14 +199,12 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
         <form onSubmit={kaydet} className="p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Hesap Tipi</label>
-            <div className="flex gap-2">
-              {[['kisi', '👤 Kişi'], ['kk', '💳 Kredi Kartı']].map(([val, label]) => (
-                <button key={val} type="button" onClick={() => setForm(f => ({ ...f, tip: val }))}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                    form.tip === val ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
-                  }`}>{label}</button>
-              ))}
+            <div className={`px-3 py-2 rounded-xl text-sm font-medium border ${
+              hesap.tip === 'kisi' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-purple-50 border-purple-200 text-purple-700'
+            }`}>
+              {hesap.tip === 'kisi' ? '👤 Kişi' : '💳 Kredi Kartı'}
             </div>
+            <p className="text-[11px] text-slate-400 mt-1">Hesap tipi sonradan değiştirilemez.</p>
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Hesap Adı</label>
@@ -166,7 +218,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
               {DOVIZLER.map(d => <option key={d}>{d}</option>)}
             </select>
           </div>
-          {form.tip === 'kk' && (
+          {hesap.tip === 'kk' && (
             <div>
               <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre Günü (ayın kaçı)</label>
               <input type="number" min="1" max="31" value={form.ekstre_gun}
@@ -193,7 +245,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
 }
 
 // --- Kalem Düzenleme Formu ---
-function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
+function KalemDuzenleFormu({ kalem, doviz_cinsi, tip, onKapat, onKayit }) {
   const sembol = SEMBOL[doviz_cinsi] || doviz_cinsi
   const [form, setForm] = useState({
     tarih: kalem.tarih ? yerelTarih(kalem.tarih) : yerelTarih(new Date()),
@@ -207,11 +259,23 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, onKapat, onKayit }) {
     e.preventDefault()
     setKaydediliyor(true)
     const yeniTutar = parseFloat(form.tutar) || 0
-    await supabase.from('borc_kalemler').update({
-      tarih: form.tarih,
-      tutar: isPositive ? yeniTutar : -yeniTutar,
-      aciklama: form.aciklama || null,
-    }).eq('id', kalem.id)
+    if (tip === 'kisi') {
+      // kalem.tutar burada eski-mimari görünüm için ters çevrilmiş bir shim
+      // değeri (bkz. yukleDetay) — hesap_hareketler'e yazarken AŞAMA 6
+      // migrasyonuyla tutarlı olacak şekilde tekrar ters çevrilir.
+      const dbTutar = isPositive ? -yeniTutar : yeniTutar
+      await supabase.from('hesap_hareketler').update({
+        tarih: form.tarih,
+        tutar: dbTutar,
+        aciklama: form.aciklama || null,
+      }).eq('id', kalem.id)
+    } else {
+      await supabase.from('borc_kalemler').update({
+        tarih: form.tarih,
+        tutar: isPositive ? yeniTutar : -yeniTutar,
+        aciklama: form.aciklama || null,
+      }).eq('id', kalem.id)
+    }
     onKayit(); onKapat()
   }
 
@@ -470,14 +534,20 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
     const tutar = parseFloat(form.tutar) || 0
     const d = new Date(form.tarih)
     const donem = d.getFullYear() * 100 + d.getMonth() + 1
-    const sira = (await borcKalemMaxSira(hesap.id)) + 1
-    await supabase.from('borc_kalemler').insert({
+    const sira = (await hesapHareketMaxSira(hesap.id)) + 1
+    // Yeni mimaride 'borc' tipi hesabın bakiyesi pozitifken "bana borçlular"
+    // (alacak) anlamına gelir — AŞAMA 6 migrasyonundaki işaret çevirimiyle
+    // (yeni_tutar = -eski_tutar) tutarlı olması için: al → -tutar, öde → +tutar
+    await supabase.from('hesap_hareketler').insert({
       hesap_id: hesap.id,
+      karsi_hesap_id: null,
+      grup_id: null,
       tarih: form.tarih,
       donem,
-      tutar: form.tur === 'al' ? tutar : -tutar,
+      tutar: form.tur === 'al' ? -tutar : tutar,
+      tur: 'transfer',
+      kategori: form.tur === 'al' ? 'Borç Alındı' : 'Borç Ödendi',
       aciklama: form.aciklama || null,
-      tur: form.tur,
       sira,
     })
     onKayit(); onKapat()
@@ -867,15 +937,19 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
       donemOdenmemis.forEach(r => giderler.push(r))
     }
 
-    // 3. Hepsini giderler tablosuna ekle
+    // 3. Hepsini Banka hesabının hesap_hareketler'ine GİDER olarak ekle (K bakiyesinden düşer)
     if (giderler.length > 0) {
-      const maxSiralar = await islemMaxSiralar(giderler.map(r => r.donem))
-      await supabase.from('giderler').insert(giderler.map(r => ({
+      const knIds = await knIdleriGetir()
+      const maxSiralar = await knMaxSiralar(giderler.map(r => r.donem), knIds)
+      await supabase.from('hesap_hareketler').insert(giderler.map(r => ({
+        hesap_id: knIds.banka,
+        karsi_hesap_id: null,
+        grup_id: null,
         tarih: r.tarih,
         donem: r.donem,
+        tutar: -(r.tutar || 0),
+        tur: 'gider',
         kategori: r.kategori || 'Borç',
-        k: r.tutar,
-        hesap: 'K',
         aciklama: `${hesap.ad}${r.aciklama ? ' · ' + r.aciklama : ''}`,
         sira: ++maxSiralar[r.donem],
       })))
@@ -969,13 +1043,22 @@ export default function BorcAlacak() {
   const [seciliHareketId, setSeciliHareketId] = useState(null) // hareket sıralama
   const [yukleniyor, setYukleniyor] = useState(true)
 
+  // Kişi hesapları artık `hesaplar` (tip='borc') tablosunda — borc_hesaplar-şekilli
+  // nesnelere eşlenir ki mevcut JSX değişmeden çalışsın (shim deseni; bkz. Birikim.jsx)
+  const kisiShim = (h) => ({
+    id: h.id, ad: h.ad, tip: 'kisi', doviz_cinsi: h.doviz_cinsi,
+    ekstre_gun: null, aciklama: h.aciklama, aktif: h.aktif, created_at: h.created_at,
+  })
+
   const yukleHesaplar = useCallback(async () => {
     setYukleniyor(true)
-    const [{ data: aktif }, { data: gecmis }] = await Promise.all([
-      supabase.from('borc_hesaplar').select('*').eq('aktif', true).order('created_at'),
-      supabase.from('borc_hesaplar').select('*').eq('aktif', false).order('created_at'),
+    const [{ data: kisiAktif }, { data: kisiGecmis }, { data: kkAktif }, { data: kkGecmis }] = await Promise.all([
+      supabase.from('hesaplar').select('*').eq('tip', 'borc').eq('aktif', true).order('sira'),
+      supabase.from('hesaplar').select('*').eq('tip', 'borc').eq('aktif', false).order('sira'),
+      supabase.from('borc_hesaplar').select('*').eq('tip', 'kk').eq('aktif', true).order('created_at'),
+      supabase.from('borc_hesaplar').select('*').eq('tip', 'kk').eq('aktif', false).order('created_at'),
     ])
-    const aHesaplar = aktif || []
+    const aHesaplar = [...(kisiAktif || []).map(kisiShim), ...(kkAktif || [])]
     setHesaplar(aHesaplar)
 
     // Aktif hesapların bakiyelerini yükle
@@ -983,22 +1066,22 @@ export default function BorcAlacak() {
       const buAyVal = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
       const bakiyeMap = {}
       await Promise.all(aHesaplar.map(async (h) => {
-        const [{ data: kalemler }, { data: harcamalar }] = await Promise.all([
-          supabase.from('borc_kalemler').select('tutar, odendi, donem').eq('hesap_id', h.id),
-          h.tip === 'kk'
-            ? supabase.from('borc_harcamalar').select('tutar, ekstre_kesildi').eq('hesap_id', h.id)
-            : Promise.resolve({ data: [] }),
-        ])
-        const k = kalemler || []
-        const bekleyenToplam = (harcamalar || [])
-          .filter(r => !r.ekstre_kesildi).reduce((s, r) => s + (r.tutar || 0), 0)
-
         if (h.tip === 'kk') {
+          const [{ data: kalemler }, { data: harcamalar }] = await Promise.all([
+            supabase.from('borc_kalemler').select('tutar, odendi, donem').eq('hesap_id', h.id),
+            supabase.from('borc_harcamalar').select('tutar, ekstre_kesildi').eq('hesap_id', h.id),
+          ])
+          const k = kalemler || []
+          const bekleyenToplam = (harcamalar || [])
+            .filter(r => !r.ekstre_kesildi).reduce((s, r) => s + (r.tutar || 0), 0)
           const toplam = k.filter(r => !r.odendi).reduce((s, r) => s + (r.tutar || 0), 0) + bekleyenToplam
           const guncel = k.filter(r => !r.odendi && r.donem === buAyVal).reduce((s, r) => s + (r.tutar || 0), 0) + bekleyenToplam
           bakiyeMap[h.id] = { bakiye: toplam, guncel, toplam }
         } else {
-          const bak = k.reduce((s, r) => s + (r.tutar || 0), 0)
+          // hesap_hareketler'de pozitif = alacak (bana borçlular); bu ekran
+          // eskiden olduğu gibi pozitif = "ben borçluyum" bekliyor → işareti çevir
+          const { data } = await supabase.from('hesap_hareketler').select('tutar').eq('hesap_id', h.id)
+          const bak = -((data || []).reduce((s, r) => s + (r.tutar || 0), 0))
           bakiyeMap[h.id] = { bakiye: bak, guncel: null, toplam: null }
         }
       }))
@@ -1006,52 +1089,80 @@ export default function BorcAlacak() {
     }
 
     // Geçmiş hesapların bakiyelerini yükle
-    const gHesaplar = gecmis || []
+    const gHesaplar = [...(kisiGecmis || []).map(kisiShim), ...(kkGecmis || [])]
     setGecmisHesaplar(gHesaplar)
     if (gHesaplar.length > 0) {
       const bakiyeMap = {}
       await Promise.all(gHesaplar.map(async (h) => {
-        const { data } = await supabase.from('borc_kalemler').select('tutar').eq('hesap_id', h.id)
-        bakiyeMap[h.id] = (data || []).reduce((s, r) => s + (r.tutar || 0), 0)
+        if (h.tip === 'kk') {
+          const { data } = await supabase.from('borc_kalemler').select('tutar').eq('hesap_id', h.id)
+          bakiyeMap[h.id] = (data || []).reduce((s, r) => s + (r.tutar || 0), 0)
+        } else {
+          const { data } = await supabase.from('hesap_hareketler').select('tutar').eq('hesap_id', h.id)
+          bakiyeMap[h.id] = -((data || []).reduce((s, r) => s + (r.tutar || 0), 0))
+        }
       }))
       setGecmisBakiyeler(bakiyeMap)
     }
     setYukleniyor(false)
   }, [])
 
-  const yukleDetay = useCallback(async (hesapId) => {
+  const yukleDetay = useCallback(async (hesapId, tip) => {
     if (!hesapId) return
-    const [{ data: k }, { data: h }] = await Promise.all([
-      supabase.from('borc_kalemler').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
-      supabase.from('borc_harcamalar').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
-    ])
-    setHareketler(k || [])
-    setHarcamalar(h || [])
+    if (tip === 'kisi') {
+      // Kişi hareketleri artık hesap_hareketler'de — borc_kalemler-şekilli
+      // nesnelere eşlenir (shim). İşaret AŞAMA 6 migrasyonunun tersine çevrilir:
+      // eski ekran pozitif tutarı "ben borçluyum" (🔴 Borç) olarak yorumluyor,
+      // yeni mimaride ise pozitif "bana borçlular" (alacak) anlamına geliyor.
+      const { data } = await supabase.from('hesap_hareketler').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false })
+      const satirlar = (data || []).map(row => {
+        const eskiTutar = -(row.tutar || 0)
+        return {
+          id: row.id, hesap_id: row.hesap_id, tarih: row.tarih, donem: row.donem,
+          tutar: eskiTutar, aciklama: row.aciklama,
+          tur: eskiTutar >= 0 ? 'al' : 'ode',
+          sira: row.sira, odendi: false, grup_id: null,
+        }
+      })
+      setHareketler(satirlar)
+      setHarcamalar([])
+    } else {
+      const [{ data: k }, { data: h }] = await Promise.all([
+        supabase.from('borc_kalemler').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
+        supabase.from('borc_harcamalar').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
+      ])
+      setHareketler(k || [])
+      setHarcamalar(h || [])
+    }
   }, [])
 
   useEffect(() => { yukleHesaplar() }, [yukleHesaplar])
-  useEffect(() => { if (secili) yukleDetay(secili.id) }, [secili, yukleDetay])
+  useEffect(() => { if (secili) yukleDetay(secili.id, secili.tip) }, [secili, yukleDetay])
 
   const yenile = () => {
     yukleHesaplar()
-    if (secili) yukleDetay(secili.id)
+    if (secili) yukleDetay(secili.id, secili.tip)
   }
 
   const silHareket = async (id) => {
     if (!confirm('Silinsin mi?')) return
-    await supabase.from('borc_kalemler').delete().eq('id', id)
-    yukleDetay(secili.id)
+    if (seciliHesap?.tip === 'kisi') {
+      await supabase.from('hesap_hareketler').delete().eq('id', id)
+    } else {
+      await supabase.from('borc_kalemler').delete().eq('id', id)
+    }
+    yukleDetay(secili.id, secili.tip)
   }
 
   const toggleOdendi = async (id, mevcutDurum) => {
     await supabase.from('borc_kalemler').update({ odendi: !mevcutDurum }).eq('id', id)
-    yukleDetay(secili.id)
+    yukleDetay(secili.id, secili.tip)
   }
 
   const silHarcama = async (id) => {
     if (!confirm('Silinsin mi?')) return
     await supabase.from('borc_harcamalar').delete().eq('id', id)
-    yukleDetay(secili.id)
+    yukleDetay(secili.id, secili.tip)
   }
 
   // Büyükten küçüğe sıralanır: en yüksek sira değeri (en yeni kayıt) en üstte görünür
@@ -1080,7 +1191,7 @@ export default function BorcAlacak() {
         yeni.map((h, i) => supabase.from('borc_harcamalar').update({ sira: n - 1 - i }).eq('id', h.id))
       )
     }
-    yukleDetay(seciliHesap.id)
+    yukleDetay(seciliHesap.id, seciliHesap.tip)
   }
 
   const yukariTasi = async () => {
@@ -1112,27 +1223,40 @@ export default function BorcAlacak() {
       sira: maxSira + 1,
     })
     setYeniSatir(null)
-    yukleDetay(seciliHesap.id)
+    yukleDetay(seciliHesap.id, seciliHesap.tip)
   }
 
   // Hesabı kapat → geçmişe taşır (aktif=false)
   const kapatHesap = async () => {
     if (!confirm(`"${secili.ad}" hesabı kapatılsın mı? Geçmiş sekmesinde görünmeye devam eder.`)) return
-    await supabase.from('borc_hesaplar').update({ aktif: false }).eq('id', secili.id)
+    if (secili.tip === 'kisi') {
+      await supabase.from('hesaplar').update({ aktif: false }).eq('id', secili.id)
+    } else {
+      await supabase.from('borc_hesaplar').update({ aktif: false }).eq('id', secili.id)
+    }
     setSecili(null)
     yukleHesaplar()
   }
 
   // Geçmişteki hesabı kalıcı sil
-  const kaliciSil = async (id, ad) => {
+  const kaliciSil = async (id, ad, tip) => {
     if (!confirm(`"${ad}" hesabı ve tüm hareketleri kalıcı olarak silinsin mi?`)) return
-    await supabase.from('borc_hesaplar').delete().eq('id', id)
+    if (tip === 'kisi') {
+      await supabase.from('hesap_hareketler').delete().eq('hesap_id', id)
+      await supabase.from('hesaplar').delete().eq('id', id)
+    } else {
+      await supabase.from('borc_hesaplar').delete().eq('id', id)
+    }
     yukleHesaplar()
   }
 
   // Geçmişteki hesabı yeniden aç
-  const geriAc = async (id) => {
-    await supabase.from('borc_hesaplar').update({ aktif: true }).eq('id', id)
+  const geriAc = async (id, tip) => {
+    if (tip === 'kisi') {
+      await supabase.from('hesaplar').update({ aktif: true }).eq('id', id)
+    } else {
+      await supabase.from('borc_hesaplar').update({ aktif: true }).eq('id', id)
+    }
     yukleHesaplar()
   }
 
@@ -1209,20 +1333,21 @@ export default function BorcAlacak() {
   const siraTakasEtHareket = async (idxA, idxB) => {
     const liste = gosterilecekHareketler
     const a = liste[idxA], b = liste[idxB]
+    const tablo = seciliHesap.tip === 'kisi' ? 'hesap_hareketler' : 'borc_kalemler'
     if (a.sira != null && b.sira != null) {
       await Promise.all([
-        supabase.from('borc_kalemler').update({ sira: b.sira }).eq('id', a.id),
-        supabase.from('borc_kalemler').update({ sira: a.sira }).eq('id', b.id),
+        supabase.from(tablo).update({ sira: b.sira }).eq('id', a.id),
+        supabase.from(tablo).update({ sira: a.sira }).eq('id', b.id),
       ])
     } else {
       const yeni = [...liste]
       ;[yeni[idxA], yeni[idxB]] = [yeni[idxB], yeni[idxA]]
       const n = yeni.length
       await Promise.all(
-        yeni.map((r, i) => supabase.from('borc_kalemler').update({ sira: n - 1 - i }).eq('id', r.id))
+        yeni.map((r, i) => supabase.from(tablo).update({ sira: n - 1 - i }).eq('id', r.id))
       )
     }
-    yukleDetay(seciliHesap.id)
+    yukleDetay(seciliHesap.id, seciliHesap.tip)
   }
 
   const yukariTasiHareket = async () => {
@@ -1308,11 +1433,11 @@ export default function BorcAlacak() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-3">
-                    <button onClick={() => geriAc(h.id)}
+                    <button onClick={() => geriAc(h.id, h.tip)}
                       className="flex-1 py-1.5 rounded-xl border border-blue-200 text-blue-600 text-xs font-medium hover:bg-blue-50 transition-colors">
                       Yeniden Aç
                     </button>
-                    <button onClick={() => kaliciSil(h.id, h.ad)}
+                    <button onClick={() => kaliciSil(h.id, h.ad, h.tip)}
                       className="flex-1 py-1.5 rounded-xl border border-red-200 text-red-400 text-xs font-medium hover:bg-red-50 transition-colors">
                       Kalıcı Sil
                     </button>
@@ -1730,12 +1855,12 @@ export default function BorcAlacak() {
       {/* Formlar */}
       {form === 'hesap' && <HesapFormu onKapat={() => setForm(null)} onKayit={yenile} />}
       {form === 'duzenle-hesap' && seciliHesap && (
-        <HesapDuzenleFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={() => { setForm(null); yukleHesaplar(); yukleDetay(seciliHesap.id) }} />
+        <HesapDuzenleFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={() => { setForm(null); yukleHesaplar(); yukleDetay(seciliHesap.id, seciliHesap.tip) }} />
       )}
       {duzenleHarcama && (
         <HarcamaDuzenleFormu harcama={duzenleHarcama}
           onKapat={() => setDuzenleHarcama(null)}
-          onKayit={() => { setDuzenleHarcama(null); yukleDetay(seciliHesap.id) }} />
+          onKayit={() => { setDuzenleHarcama(null); yukleDetay(seciliHesap.id, seciliHesap.tip) }} />
       )}
       {duzenleKalem && seciliHesap && (
         duzenleKalem.tur === 'taksit' && duzenleKalem.grup_id
@@ -1744,9 +1869,9 @@ export default function BorcAlacak() {
               hesapId={seciliHesap.id}
               doviz_cinsi={seciliHesap.doviz_cinsi}
               onKapat={() => setDuzenleKalem(null)}
-              onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id) }} />
-          : <KalemDuzenleFormu kalem={duzenleKalem} doviz_cinsi={seciliHesap.doviz_cinsi}
-              onKapat={() => setDuzenleKalem(null)} onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id) }} />
+              onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id, seciliHesap.tip) }} />
+          : <KalemDuzenleFormu kalem={duzenleKalem} doviz_cinsi={seciliHesap.doviz_cinsi} tip={seciliHesap.tip}
+              onKapat={() => setDuzenleKalem(null)} onKayit={() => { setDuzenleKalem(null); yukleDetay(seciliHesap.id, seciliHesap.tip) }} />
       )}
       {form === 'alode' && seciliHesap?.tip === 'kisi' && (
         <AlOdeFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={yenile} />
