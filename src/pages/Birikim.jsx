@@ -464,11 +464,12 @@ export default function Birikim() {
         latestPerAccount[k.hesap_id] = k
       }
     }
-    // Tüm hesaplar kapanmışsa → en eski ortak kapanış dönemini (min) kullan.
-    // Bu noktadan sonraki hareketler fetch edilir; öncesi snapshot'tan gelir.
-    const hepsindeBulgular = hesapIdListesi.every(id => latestPerAccount[id])
-    const sonKapaliDonem = hepsindeBulgular
-      ? Math.min(...hesapIdListesi.map(id => latestPerAccount[id].donem))
+    // Kapanış kaydı olan hesapların en eski ortak kapanış dönemini bul.
+    // Kaydı olmayan hesaplar (yeni eklenmiş) 0'dan başlar — hepsinin kapanmış
+    // olması şart değil; bu sayfa yavaş açılma sorununu çözer.
+    const kapananIds = hesapIdListesi.filter(id => latestPerAccount[id])
+    const sonKapaliDonem = kapananIds.length > 0
+      ? Math.min(...kapananIds.map(id => latestPerAccount[id].donem))
       : null
 
     // Başlangıç bakiyeleri: her hesap için sonKapaliDonem'deki snapshot'u al
