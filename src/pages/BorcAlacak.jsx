@@ -555,11 +555,12 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
       hesapHareketMaxSira(kaynakId).then(s => s + 1),
     ])
     const kategori = isVerdim ? 'Borç Verildi' : 'Borç Tahsil'
+    const grupId = crypto.randomUUID()
     await supabase.from('hesap_hareketler').insert([
       {
         hesap_id: hesap.id,
         karsi_hesap_id: kaynakId,
-        grup_id: null, tarih: form.tarih, donem,
+        grup_id: grupId, tarih: form.tarih, donem,
         tutar: isVerdim ? tutar : -tutar,   // verdim → +tutar = Alacak; aldım → -tutar = kapanır
         tur: 'transfer', kategori,
         aciklama: form.aciklama || null,
@@ -568,7 +569,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
       {
         hesap_id: kaynakId,
         karsi_hesap_id: hesap.id,
-        grup_id: null, tarih: form.tarih, donem,
+        grup_id: grupId, tarih: form.tarih, donem,
         tutar: isVerdim ? -tutar : tutar,   // verdim → -tutar = çıkış; aldım → +tutar = giriş
         tur: 'transfer', kategori,
         aciklama: form.aciklama || null,
@@ -1199,7 +1200,13 @@ export default function BorcAlacak() {
   const silHareket = async (id) => {
     if (!confirm('Silinsin mi?')) return
     if (seciliHesap?.tip === 'kisi') {
-      await supabase.from('hesap_hareketler').delete().eq('id', id)
+      const kayit = hareketler.find(r => r.id === id)
+      if (kayit?.grup_id) {
+        // Çift kayıtlı işlem: her iki bacağı birden sil (birikim + borç)
+        await supabase.from('hesap_hareketler').delete().eq('grup_id', kayit.grup_id)
+      } else {
+        await supabase.from('hesap_hareketler').delete().eq('id', id)
+      }
     } else {
       await supabase.from('borc_kalemler').delete().eq('id', id)
     }
