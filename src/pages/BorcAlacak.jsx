@@ -517,30 +517,19 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
   )
 }
 
-// --- Kişi: Al / Öde / Verdim / Geri Aldım Formu ---
-// İşlem yönleri:
-//   al        → Ben borç aldım (nakit/dışarı); borc hesabına -tutar → bak artar → "Borç" (ben borçluyum)
-//   ode       → Ben geri ödedim (nakit/dışarı); borc hesabına +tutar → bak azalır
-//   verdim    → Ben borç verdim (kaynak hesaptan); borc hesabına +tutar → bak eksi = "Alacak" (o borçlu)
-//               + kaynak hesabına -tutar (para çıkıyor)
-//   gerialdin → Karşı taraf geri ödedi (kaynak hesaba girdi); borc hesabına -tutar → alacak kapanır
-//               + kaynak hesabına +tutar (para giriyor)
+// --- Kişi: Verdim / Aldım Formu ---
+// verdim → kaynak hesaptan -tutar (para çıkar), borc hesabına +tutar (Alacak oluşur)
+// aldin  → kaynak hesaba  +tutar (para girer),  borc hesabına -tutar (Alacak kapanır)
 function AlOdeFormu({ hesap, onKapat, onKayit }) {
   const sembol = SEMBOL[hesap.doviz_cinsi] || hesap.doviz_cinsi
-  const [form, setForm] = useState({
-    tarih: yerelTarih(new Date()),
-    tur: 'al',
-    tutar: '',
-    aciklama: '',
-  })
+  const [form, setForm] = useState({ tarih: yerelTarih(new Date()), tur: 'verdim', tutar: '', aciklama: '' })
   const [kaynakHesapId, setKaynakHesapId] = useState('')
   const [kaynakHesaplar, setKaynakHesaplar] = useState([])
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
-  // Çift kayıt işlemleri için aynı döviz cinsinden kaynak hesapları yükle
   useEffect(() => {
     supabase.from('hesaplar')
-      .select('id, ad, tip')
+      .select('id, ad')
       .eq('doviz_cinsi', hesap.doviz_cinsi)
       .eq('aktif', true)
       .neq('tip', 'borc')
@@ -552,80 +541,42 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
       })
   }, [hesap.doviz_cinsi, hesap.id])
 
-  const ciftKayit = form.tur === 'verdim' || form.tur === 'gerialdin'
-
   const kaydet = async (e) => {
     e.preventDefault()
     setKaydediliyor(true)
     const tutar = parseFloat(form.tutar) || 0
     const d = new Date(form.tarih)
     const donem = d.getFullYear() * 100 + d.getMonth() + 1
+    const isVerdim = form.tur === 'verdim'
+    const kaynakId = parseInt(kaynakHesapId)
 
-    if (ciftKayit) {
-      // Çift kayıt: borç hesabı + kaynak hesap aynı anda güncellenir
-      const isVerdim = form.tur === 'verdim'
-      // borc hesabı: verdim → +tutar (bak eksi = Alacak), gerialdin → -tutar (alacak kapanır)
-      const borcTutar = isVerdim ? tutar : -tutar
-      // kaynak hesap: verdim → -tutar (para çıkıyor), gerialdin → +tutar (para giriyor)
-      const kaynakTutar = isVerdim ? -tutar : tutar
-      const kaynakId = parseInt(kaynakHesapId)
-
-      const [borcSira, kaynakSira] = await Promise.all([
-        hesapHareketMaxSira(hesap.id).then(s => s + 1),
-        hesapHareketMaxSira(kaynakId).then(s => s + 1),
-      ])
-      const kategori = isVerdim ? 'Borç Verildi' : 'Borç Tahsil'
-      await supabase.from('hesap_hareketler').insert([
-        {
-          hesap_id: hesap.id,
-          karsi_hesap_id: kaynakId,
-          grup_id: null,
-          tarih: form.tarih,
-          donem,
-          tutar: borcTutar,
-          tur: 'transfer',
-          kategori,
-          aciklama: form.aciklama || null,
-          sira: borcSira,
-        },
-        {
-          hesap_id: kaynakId,
-          karsi_hesap_id: hesap.id,
-          grup_id: null,
-          tarih: form.tarih,
-          donem,
-          tutar: kaynakTutar,
-          tur: 'transfer',
-          kategori,
-          aciklama: form.aciklama || null,
-          sira: kaynakSira,
-        },
-      ])
-    } else {
-      // Tek kayıt: nakit/dışarı işlem (kaynak hesap takip edilmiyor)
-      const sira = (await hesapHareketMaxSira(hesap.id)) + 1
-      await supabase.from('hesap_hareketler').insert({
+    const [borcSira, kaynakSira] = await Promise.all([
+      hesapHareketMaxSira(hesap.id).then(s => s + 1),
+      hesapHareketMaxSira(kaynakId).then(s => s + 1),
+    ])
+    const kategori = isVerdim ? 'Borç Verildi' : 'Borç Tahsil'
+    await supabase.from('hesap_hareketler').insert([
+      {
         hesap_id: hesap.id,
-        karsi_hesap_id: null,
-        grup_id: null,
-        tarih: form.tarih,
-        donem,
-        tutar: form.tur === 'al' ? -tutar : tutar,
-        tur: 'transfer',
-        kategori: form.tur === 'al' ? 'Borç Alındı' : 'Borç Ödendi',
+        karsi_hesap_id: kaynakId,
+        grup_id: null, tarih: form.tarih, donem,
+        tutar: isVerdim ? tutar : -tutar,   // verdim → +tutar = Alacak; aldım → -tutar = kapanır
+        tur: 'transfer', kategori,
         aciklama: form.aciklama || null,
-        sira,
-      })
-    }
+        sira: borcSira,
+      },
+      {
+        hesap_id: kaynakId,
+        karsi_hesap_id: hesap.id,
+        grup_id: null, tarih: form.tarih, donem,
+        tutar: isVerdim ? -tutar : tutar,   // verdim → -tutar = çıkış; aldım → +tutar = giriş
+        tur: 'transfer', kategori,
+        aciklama: form.aciklama || null,
+        sira: kaynakSira,
+      },
+    ])
     onKayit(); onKapat()
   }
-
-  const TUR_SECENEKLER = [
-    ['verdim',    '↑ Verdim',    'bg-amber-50 border-amber-300 text-amber-700'],
-    ['al',        '↑ Al',        'bg-red-50 border-red-300 text-red-600'],
-    ['gerialdin', '↓ Geri Aldım','bg-green-50 border-green-300 text-green-600'],
-    ['ode',       '↓ Öde',       'bg-teal-50 border-teal-300 text-teal-600'],
-  ]
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
@@ -636,41 +587,41 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
         <form onSubmit={kaydet} className="p-5 space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">İşlem</label>
-            <div className="grid grid-cols-2 gap-2">
-              {TUR_SECENEKLER.map(([val, label, aktifCls]) => (
+            <div className="flex gap-2">
+              {[
+                ['verdim', '↑ Verdim',  'bg-amber-50 border-amber-300 text-amber-700'],
+                ['aldin',  '↓ Aldım',   'bg-green-50 border-green-300 text-green-600'],
+              ].map(([val, label, aktifCls]) => (
                 <button key={val} type="button" onClick={() => setForm(f => ({ ...f, tur: val }))}
-                  className={`py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
                     form.tur === val ? aktifCls : 'border-slate-200 text-slate-400'
                   }`}>{label}</button>
               ))}
             </div>
             <p className="text-xs text-slate-400 mt-1.5">
-              {form.tur === 'verdim'    && '🟡 Hesabından para çıkar, kişi sana borçlanır (Alacak)'}
-              {form.tur === 'al'        && '🔴 Kişiden borç aldın, sende borç oluşur'}
-              {form.tur === 'gerialdin' && '🟢 Kişi sana geri ödedi, hesabına para girer'}
-              {form.tur === 'ode'       && '🩵 Kişiye geri ödedin, borç azalır'}
+              {form.tur === 'verdim'
+                ? '🟡 Hesabından çıkar → kişi sana borçlanır (Alacak)'
+                : '🟢 Hesabına girer → kişinin borcu kapanır'}
             </p>
           </div>
 
-          {ciftKayit && (
-            <div>
-              <label className="text-xs font-medium text-slate-500 block mb-1">
-                {form.tur === 'verdim' ? 'Kaynağı (parayı verdiğin hesap)' : 'Hedef (paranın girdiği hesap)'}
-              </label>
-              {kaynakHesaplar.length === 0 ? (
-                <p className="text-xs text-red-400 bg-red-50 rounded-xl px-3 py-2">
-                  {hesap.doviz_cinsi} cinsinden takip edilen hesap yok. Önce hesap ekle.
-                </p>
-              ) : (
-                <select value={kaynakHesapId} onChange={e => setKaynakHesapId(e.target.value)} required
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                  {kaynakHesaplar.map(h => (
-                    <option key={h.id} value={h.id}>{h.ad}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">
+              {form.tur === 'verdim' ? 'Kaynak hesap' : 'Hedef hesap'}
+            </label>
+            {kaynakHesaplar.length === 0 ? (
+              <p className="text-xs text-red-400 bg-red-50 rounded-xl px-3 py-2">
+                {hesap.doviz_cinsi} cinsinden takip edilen hesap yok.
+              </p>
+            ) : (
+              <select value={kaynakHesapId} onChange={e => setKaynakHesapId(e.target.value)} required
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                {kaynakHesaplar.map(h => (
+                  <option key={h.id} value={h.id}>{h.ad}</option>
+                ))}
+              </select>
+            )}
+          </div>
 
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tarih</label>
@@ -689,8 +640,9 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
-            <button type="submit" disabled={kaydediliyor || (ciftKayit && !kaynakHesapId)}
+            <button type="button" onClick={onKapat}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor || !kaynakHesapId}
               className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
               {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
             </button>
