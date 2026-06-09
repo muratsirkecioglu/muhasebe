@@ -457,23 +457,34 @@ export default function Birikim() {
         .select('donem'),
     ])
 
-    // Son kapalı dönem snapshot'larını bul — tüm hesapların ortak kapandığı dönem
+    // Her hesabın en son kapandığı dönemi bul
     const latestPerAccount = {}
     for (const k of kapanislar || []) {
       if (!latestPerAccount[k.hesap_id] || k.donem > latestPerAccount[k.hesap_id].donem) {
         latestPerAccount[k.hesap_id] = k
       }
     }
+    // Tüm hesaplar kapanmışsa → en eski ortak kapanış dönemini (min) kullan.
+    // Bu noktadan sonraki hareketler fetch edilir; öncesi snapshot'tan gelir.
     const hepsindeBulgular = hesapIdListesi.every(id => latestPerAccount[id])
-    const donems = hesapIdListesi.map(id => latestPerAccount[id]?.donem)
-    const tekDonem = hepsindeBulgular && new Set(donems).size === 1
-    const sonKapaliDonem = tekDonem ? donems[0] : null
+    const sonKapaliDonem = hepsindeBulgular
+      ? Math.min(...hesapIdListesi.map(id => latestPerAccount[id].donem))
+      : null
 
-    // Başlangıç bakiyeleri (snapshot'tan) — hesap_id → bakiye
+    // Başlangıç bakiyeleri: her hesap için sonKapaliDonem'deki snapshot'u al
     const snap = {}
     if (sonKapaliDonem) {
+      // Her hesap için sonKapaliDonem'e eşit veya önceki en yakın snapshot
+      const snapPerAccount = {}
+      for (const k of kapanislar || []) {
+        if (k.donem <= sonKapaliDonem) {
+          if (!snapPerAccount[k.hesap_id] || k.donem > snapPerAccount[k.hesap_id].donem) {
+            snapPerAccount[k.hesap_id] = k
+          }
+        }
+      }
       for (const id of hesapIdListesi) {
-        snap[id] = latestPerAccount[id]?.kapani_bakiye ?? 0
+        snap[id] = snapPerAccount[id]?.kapani_bakiye ?? 0
       }
     }
     setBaslangicBakiyeler(snap)
@@ -533,10 +544,10 @@ export default function Birikim() {
 
   useEffect(() => { yukle() }, [yukle])
 
-  // Geçmiş dönem seçilince ve o dönem hareketler'de yoksa DB'den çek (lazy)
+  // Kapalı dönem seçilince ve o dönem hareketler'de yoksa DB'den çek (lazy)
   useEffect(() => {
     if (!donemFiltre || !hesapMap) return
-    if (donemFiltre >= buDonem()) return                        // açık dönem, zaten yüklü
+    if (!kapaliDonemler.has(donemFiltre)) return                // kapalı değil, zaten yüklü
     const inHareketler = hareketler.some(r => r.donem === donemFiltre)
     if (inHareketler) return                                    // hareketler'de var
     if (kapaliDonemCache[donemFiltre] !== undefined) return     // cache'te var
@@ -564,7 +575,7 @@ export default function Birikim() {
       setYukleniyorDonem(false)
     }
     fetchKapaliDonem()
-  }, [donemFiltre, hareketler, kapaliDonemCache, hesapMap])
+  }, [donemFiltre, kapaliDonemler, hareketler, kapaliDonemCache, hesapMap])
 
   const sil = async (id) => {
     if (!confirm('Silinsin mi?')) return
@@ -593,17 +604,13 @@ export default function Birikim() {
     bakiyeler[h.ad] = snap + hareketToplami
   }
 
-  // Dönem dropdown listeleri — "kapalı" = bu aydan önce, DB'deki kapanış tablosuna bağlı değil
-  const buAy = buDonem()
+  // Dönem dropdown listeleri — kapalı = donem_kapanislari'nda olan dönemler
   const periodsInHareketler = new Set(hareketler.map(r => r.donem).filter(Boolean))
-  const acikDonemler = [...periodsInHareketler].filter(d => d >= buAy).sort((a, b) => b - a)
-  // Geçmiş dönemler: hareketler'deki + kapaliDonemler state'indeki (donem_kapanislari'dan)
-  const kapaliDonemSirali = [
-    ...new Set([...[...periodsInHareketler].filter(d => d < buAy), ...[...kapaliDonemler]])
-  ].sort((a, b) => b - a)
+  const acikDonemler = [...periodsInHareketler].filter(d => !kapaliDonemler.has(d)).sort((a, b) => b - a)
+  const kapaliDonemSirali = [...kapaliDonemler].sort((a, b) => b - a)
 
-  // Seçili dönem geçmiş ay mı? → veri ya hareketler'de ya da cache'te
-  const isKapaliDonemSecili = donemFiltre != null && donemFiltre < buAy
+  // Seçili dönem kapalı mı? → veri cache'ten gelir (hareketler'de yoksa)
+  const isKapaliDonemSecili = donemFiltre != null && kapaliDonemler.has(donemFiltre)
   const inHareketlerSecili = donemFiltre != null && periodsInHareketler.has(donemFiltre)
   const aktifKaynak = (isKapaliDonemSecili && !inHareketlerSecili)
     ? (kapaliDonemCache[donemFiltre] || [])
@@ -613,7 +620,7 @@ export default function Birikim() {
   // Tümü: tarih sırası, Specific: sira sırası büyükten küçüğe (yoksa tarih)
   const filtrelenmis = (() => {
     let base = filtreAd === 'Tümü' ? aktifKaynak : aktifKaynak.filter(r => r.ad === filtreAd)
-    // Dönem filtresi: cache'ten geliyorsa zaten o döneme ait; değilse client-side filtrele
+    // Cache'ten geliyorsa zaten o döneme ait; değilse client-side filtrele
     const needsClientFilter = donemFiltre && !(isKapaliDonemSecili && !inHareketlerSecili)
     if (needsClientFilter) base = base.filter(r => r.donem === donemFiltre)
     if (filtreAd === 'Tümü') return base
