@@ -1,0 +1,1 @@
+{"name":"Kişisel Muhasebe","short_name":"Muhasebe","description":"Kişisel gelir, gider ve birikim takibi","start_url":"/muhasebe/","display":"standalone","background_color":"#f8fafc","theme_color":"#1e40af","lang":"en","scope":"/muhasebe/","icons":[{"src":"pwa-192x192.png","sizes":"192x192","type":"image/png"},{"src":"pwa-512x512.png","sizes":"512x512","type":"image/png"}]}
