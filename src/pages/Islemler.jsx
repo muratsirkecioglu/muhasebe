@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
@@ -289,7 +289,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit }) {
   )
 }
 
-export default function Islemler() {
+export default function Islemler({ onHazir } = {}) {
   const { maskeli } = useMask()
   const [donem, setDonem] = useState(buDonem())
   const [form, setForm] = useState(null)
@@ -300,6 +300,17 @@ export default function Islemler() {
   const [hesapIds, setHesapIds] = useState(null)
 
   useEffect(() => { hesapIdleriGetir().then(setHesapIds) }, [])
+
+  // İlk yükleme tamamlanınca parent'a haber ver (HesapIslemler koordinasyonu)
+  const onHazirRef = useRef(onHazir)
+  onHazirRef.current = onHazir
+  const hazirCagirildi = useRef(false)
+  useEffect(() => {
+    if (!yukleniyor && onHazirRef.current && !hazirCagirildi.current) {
+      hazirCagirildi.current = true
+      onHazirRef.current()
+    }
+  }, [yukleniyor])
 
   const yukle = useCallback(async () => {
     if (!hesapIds) return
@@ -394,6 +405,9 @@ export default function Islemler() {
   const toplamGelir = islemler.filter(r => r._tur === 'gelir').reduce((s, r) => s + (r.k || 0), 0)
   const toplamGider = islemler.filter(r => r._tur === 'gider').reduce((s, r) => s + (r.k || 0), 0)
   const net = toplamGelir - toplamGider
+
+  // onHazir varsa parent spinner'ı gösteriyor — ilk yükleme bitene kadar bekle
+  if (yukleniyor && onHazir) return null
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">

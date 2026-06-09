@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, donemLabel, buDonem } from '../db'
 import { useMask } from '../MaskContext'
@@ -404,7 +404,7 @@ async function aylikVerileriHesapla() {
   return { satirlar, bankaId, nakitId, birikimId }
 }
 
-export default function Hesap() {
+export default function Hesap({ onHazir } = {}) {
   const { maskeli } = useMask()
   const gizle = (deger) => maskeli ? '••••' : (deger !== 0 ? formatPara(deger) : '—')
   const [satirlar, setSatirlar] = useState([])
@@ -426,6 +426,17 @@ export default function Hesap() {
   }, [])
 
   useEffect(() => { yenile() }, [yenile])
+
+  // İlk yükleme tamamlanınca parent'a haber ver (HesapIslemler koordinasyonu)
+  const onHazirRef = useRef(onHazir)
+  onHazirRef.current = onHazir
+  const hazirCagirildi = useRef(false)
+  useEffect(() => {
+    if (!yukleniyor && onHazirRef.current && !hazirCagirildi.current) {
+      hazirCagirildi.current = true
+      onHazirRef.current()
+    }
+  }, [yukleniyor])
 
   // Dönemi kapat: Banka/Nakit + tüm Birikim alt hesapları için snapshot oluştur
   const handleKapat = async (donem) => {
@@ -513,11 +524,15 @@ export default function Hesap() {
     return [...liste].reverse()
   })()
 
-  if (yukleniyor) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  // onHazir varsa parent spinner'ı gösteriyor — kendi spinner'ımızı bastır
+  if (yukleniyor) {
+    if (onHazir) return null
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
