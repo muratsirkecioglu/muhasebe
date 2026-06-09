@@ -3,19 +3,19 @@ import { supabase } from '../supabase'
 import { Download, Upload, CheckCircle, AlertCircle, Loader, FileSpreadsheet } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
-// FK sırasına göre tablo listesi
+// FK sırasına göre tablo listesi — orderCol: pagination için stabil sıralama sütunu
 const TABLOLAR = [
-  { ad: 'kisiler',              conflict: 'id' },
-  { ad: 'hesaplar',             conflict: 'id' },
-  { ad: 'birikim_alt_hesaplar', conflict: 'id' },
-  { ad: 'borc_hesaplar',        conflict: 'id' },
-  { ad: 'borc_kalemler',        conflict: 'id' },
-  { ad: 'borc_harcamalar',      conflict: 'id' },
-  { ad: 'donem_kapanislari',    conflict: 'donem,hesap_id' },
-  { ad: 'hesap_hareketler',     conflict: 'id' },
+  { ad: 'kisiler',              conflict: 'id',          orderCol: 'id' },
+  { ad: 'hesaplar',             conflict: 'id',          orderCol: 'id' },
+  { ad: 'birikim_alt_hesaplar', conflict: 'id',          orderCol: 'id' },
+  { ad: 'borc_hesaplar',        conflict: 'id',          orderCol: 'id' },
+  { ad: 'borc_kalemler',        conflict: 'id',          orderCol: 'id' },
+  { ad: 'borc_harcamalar',      conflict: 'id',          orderCol: 'id' },
+  { ad: 'donem_kapanislari',    conflict: 'donem,hesap_id', orderCol: 'donem' },
+  { ad: 'hesap_hareketler',     conflict: 'id',          orderCol: 'id' },
 ]
 
-async function fetchAll(tablo) {
+async function fetchAll(tablo, orderCol = 'id') {
   const SAYFA = 1000
   let tumVeriler = []
   let sayfa = 0
@@ -23,6 +23,7 @@ async function fetchAll(tablo) {
     const { data, error } = await supabase
       .from(tablo)
       .select('*')
+      .order(orderCol, { ascending: true })
       .range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
     if (error || !data || data.length === 0) break
     tumVeriler = [...tumVeriler, ...data]
@@ -45,7 +46,7 @@ export default function Yedek() {
       const tablolar = {}
       for (const t of TABLOLAR) {
         setIlerleme(`${t.ad} çekiliyor…`)
-        tablolar[t.ad] = await fetchAll(t.ad)
+        tablolar[t.ad] = await fetchAll(t.ad, t.orderCol)
       }
 
       const yedek = {
@@ -84,7 +85,7 @@ export default function Yedek() {
 
       for (const t of TABLOLAR) {
         setIlerleme(`${t.ad} çekiliyor…`)
-        const satirlar = await fetchAll(t.ad)
+        const satirlar = await fetchAll(t.ad, t.orderCol)
         if (satirlar.length === 0) continue
         const ws = XLSX.utils.json_to_sheet(satirlar)
         XLSX.utils.book_append_sheet(wb, ws, t.ad.slice(0, 31)) // Excel sheet adı max 31 karakter
