@@ -1,5 +1,5 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, Users, Upload, Car, LogOut, BookOpen, Eye, EyeOff, Moon, Sun } from 'lucide-react'
+import { LayoutDashboard, Users, LogOut, BookOpen, Eye, EyeOff, Moon, Sun } from 'lucide-react'
 import CoinIcon from './components/CoinIcon'
 import { AuthProvider, useAuth } from './AuthContext'
 import { MaskProvider, useMask } from './MaskContext'
@@ -9,8 +9,6 @@ import DashboardProj from './pages/DashboardProj'
 import HesapIslemler from './pages/HesapIslemler'
 import Birikim from './pages/Birikim'
 import BorcAlacak from './pages/BorcAlacak'
-import Import from './pages/Import'
-import AracMasraf from './pages/AracMasraf'
 import Login from './pages/Login'
 
 const navItems = [
@@ -18,8 +16,6 @@ const navItems = [
   { to: '/hesap', icon: BookOpen, label: 'Hesap' },
   { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
-  { to: '/arac', icon: Car, label: 'Araç' },
-  { to: '/import', icon: Upload, label: 'Import' },
 ]
 
 function BottomNav() {
@@ -157,8 +153,6 @@ function AppShell() {
             <Route path="/hesap" element={<HesapIslemler />} />
             <Route path="/birikim" element={<Birikim />} />
             <Route path="/borc" element={<BorcAlacak />} />
-            <Route path="/arac" element={<AracMasraf />} />
-            <Route path="/import" element={<Import />} />
           </Routes>
         </main>
         <BottomNav />
