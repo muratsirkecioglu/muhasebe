@@ -264,11 +264,17 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, tip, onKapat, onKayit }) {
       // değeri (bkz. yukleDetay) — hesap_hareketler'e yazarken AŞAMA 6
       // migrasyonuyla tutarlı olacak şekilde tekrar ters çevrilir.
       const dbTutar = isPositive ? -yeniTutar : yeniTutar
-      await supabase.from('hesap_hareketler').update({
-        tarih: form.tarih,
-        tutar: dbTutar,
-        aciklama: form.aciklama || null,
-      }).eq('id', kalem.id)
+      const guncelleme = { tarih: form.tarih, tutar: dbTutar, aciklama: form.aciklama || null }
+      const islemler = [supabase.from('hesap_hareketler').update(guncelleme).eq('id', kalem.id)]
+      if (kalem.grup_id) {
+        // Çift kayıtlı işlem: karşı bacağı (birikim hesabı) simetrik tutarla güncelle
+        islemler.push(
+          supabase.from('hesap_hareketler')
+            .update({ tarih: form.tarih, tutar: -dbTutar, aciklama: form.aciklama || null })
+            .eq('grup_id', kalem.grup_id).neq('id', kalem.id)
+        )
+      }
+      await Promise.all(islemler)
     } else {
       await supabase.from('borc_kalemler').update({
         tarih: form.tarih,
@@ -1174,7 +1180,7 @@ export default function BorcAlacak() {
           id: row.id, hesap_id: row.hesap_id, tarih: row.tarih, donem: row.donem,
           tutar: eskiTutar, aciklama: row.aciklama,
           tur: eskiTutar >= 0 ? 'al' : 'ode',
-          sira: row.sira, odendi: false, grup_id: null,
+          sira: row.sira, odendi: false, grup_id: row.grup_id ?? null,
         }
       })
       setHareketler(satirlar)

@@ -79,13 +79,12 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
       aciklama: form.aciklama || null,
     }).eq('id', kayit.id)
 
-    // Eşli transfer kaydı varsa (Birikim bağlantısı) ve hâlâ Birikim kategorisindeyse
-    // karşı bacağı da güncelle — tutar simetrik (TL↔TL transfer), karsi_hesap_id de
-    // ana bacağın güncel hesabıyla senkron kalsın diye yenileniyor.
-    if (kayit.grup_id && form.kategori === 'Birikim') {
-      const birikimTutar = isGider ? yeniTutar : -yeniTutar
+    // Eşli transfer kaydı varsa (Birikim, Borç Verildi, Borç Tahsil vb.) karşı bacağı da güncelle.
+    // Tutar her zaman simetrik (karşı = -ana), karsi_hesap_id de ana hesapla senkron tutulur.
+    if (kayit.grup_id) {
+      const karsiTutar = isGider ? yeniTutar : -yeniTutar
       await supabase.from('hesap_hareketler')
-        .update({ tarih: form.tarih, donem: yeniDonem, tutar: birikimTutar, karsi_hesap_id: hesapId })
+        .update({ tarih: form.tarih, donem: yeniDonem, tutar: karsiTutar, karsi_hesap_id: hesapId })
         .eq('grup_id', kayit.grup_id)
         .neq('id', kayit.id)
     }
