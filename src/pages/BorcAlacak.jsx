@@ -964,9 +964,9 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
     setKaydediliyor(true)
     const bugun = yerelTarih(new Date())
     const donem = seciliDonem || (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
-    const giderler = []
 
-    // 1. Bekleyen peşin harcamaları borc_kalemler'e ekle + ödendi işaretle
+    // 1. Bekleyen peşin harcamaları borc_kalemler'e bireysel kayıt olarak ekle + kapat
+    const pesinKalemler = []
     if (bekleyenPesin.length > 0) {
       let sonSira = await borcKalemMaxSira(hesap.id)
       const yeniKalemler = bekleyenPesin.map(h => ({
@@ -985,7 +985,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
       await supabase.from('borc_harcamalar')
         .update({ ekstre_kesildi: true })
         .in('id', bekleyenPesin.map(h => h.id))
-      yeniKalemler.forEach(k => giderler.push(k))
+      pesinKalemler.push(...yeniKalemler)
     }
 
     // 2. Dönemin ödenmemiş taksitlerini ödendi olarak işaretle
@@ -993,14 +993,41 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
       await supabase.from('borc_kalemler')
         .update({ odendi: true })
         .in('id', donemOdenmemis.map(r => r.id))
-      donemOdenmemis.forEach(r => giderler.push(r))
     }
 
-    // 3. Hepsini Banka hesabının hesap_hareketler'ine GİDER olarak ekle (K bakiyesinden düşer)
-    if (giderler.length > 0) {
-      const knIds = await knIdleriGetir()
-      const maxSiralar = await knMaxSiralar(giderler.map(r => r.donem), knIds)
-      await supabase.from('hesap_hareketler').insert(giderler.map(r => ({
+    // 3. Banka hesabına gider kayıtları ekle
+    //    - Peşin: kategori bazında topla → 1 kayıt / kategori, açıklama "KK Harcama"
+    //    - Taksitli: her biri kendi kategori + açıklamasıyla ayrı kayıt
+    const knIds = await knIdleriGetir()
+    const tumDonemler = [...new Set([donem, ...donemOdenmemis.map(r => r.donem).filter(Boolean)])]
+    const maxSiralar = await knMaxSiralar(tumDonemler, knIds)
+
+    const bankaGiderler = []
+
+    // Peşin → kategori bazında grupla
+    const pesinGrubu = {}
+    pesinKalemler.forEach(k => {
+      const kat = k.kategori || 'Diğer'
+      pesinGrubu[kat] = (pesinGrubu[kat] || 0) + (k.tutar || 0)
+    })
+    Object.entries(pesinGrubu).forEach(([kat, toplam]) => {
+      bankaGiderler.push({
+        hesap_id: knIds.banka,
+        karsi_hesap_id: null,
+        grup_id: null,
+        tarih: bugun,
+        donem,
+        tutar: -toplam,
+        tur: 'gider',
+        kategori: kat,
+        aciklama: 'KK Harcama',
+        sira: ++maxSiralar[donem],
+      })
+    })
+
+    // Taksitli → her biri ayrı kayıt, kendi açıklaması ve kategorisiyle
+    donemOdenmemis.forEach(r => {
+      bankaGiderler.push({
         hesap_id: knIds.banka,
         karsi_hesap_id: null,
         grup_id: null,
@@ -1008,10 +1035,14 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
         donem: r.donem,
         tutar: -(r.tutar || 0),
         tur: 'gider',
-        kategori: r.kategori || 'Borç',
-        aciklama: `${hesap.ad}${r.aciklama ? ' · ' + r.aciklama : ''}`,
+        kategori: r.kategori || 'Diğer',
+        aciklama: r.aciklama || hesap.ad,
         sira: ++maxSiralar[r.donem],
-      })))
+      })
+    })
+
+    if (bankaGiderler.length > 0) {
+      await supabase.from('hesap_hareketler').insert(bankaGiderler)
     }
 
     onKayit(); onKapat()
