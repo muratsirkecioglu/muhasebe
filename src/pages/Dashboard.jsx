@@ -199,12 +199,57 @@ export default function Dashboard() {
     const baslangicNakit = ayarMap['baslangic_nakit'] || 0
     setBaslangic({ banka: baslangicBanka, nakit: baslangicNakit })
 
-    // Banka/Nakit kümülatif bakiyesi — Hesap.jsx'teki okuma mantığıyla birebir aynı:
-    // gelir/gider/Birikim-kategorili-transfer satırlarının net katkısı doğrudan
-    // (işaretli) tutar'dır; gerçek Banka↔Nakit iç transferleri simetrik çift olduğundan
-    // sadece Banka bacağından sayılır (transferNet).
-    const hareketler = await tumunuCek('hesap_hareketler', 'hesap_id, karsi_hesap_id, tutar, tur',
-      q => q.in('hesap_id', [bankaId, nakitId]))
+    // ─── 2. B/N snapshot + birikim alt-hesaplar paralel ────────────────────────
+    // Kişi hesapları da burada tanımla (aşağıda snapshot sorgusunda lazım)
+    const kisiHesaplar = kisiHesaplarRes.data || []
+    const kisiIdleri = kisiHesaplar.map(h => h.id)
+    const [bnSnapRes, birikimAltlarRes] = await Promise.all([
+      supabase.from('donem_kapanislari')
+        .select('hesap_id, kapani_bakiye, donem')
+        .in('hesap_id', [bankaId, nakitId]),
+      supabase.from('hesaplar')
+        .select('id, ad, doviz_cinsi, emoji, renk')
+        .eq('ust_hesap_id', birikimId)
+        .in('tip', ['birikim', 'yatirim'])
+        .eq('aktif', true)
+        .order('sira'),
+    ])
+
+    // B/N son kapalı dönem
+    const bnLatest = {}
+    for (const k of bnSnapRes.data || []) {
+      if (!bnLatest[k.hesap_id] || k.donem > bnLatest[k.hesap_id].donem)
+        bnLatest[k.hesap_id] = k
+    }
+    const bnHepsinde = [bankaId, nakitId].every(id => bnLatest[id])
+    const bnTekDonem = bnHepsinde && bnLatest[bankaId]?.donem === bnLatest[nakitId]?.donem
+    const bnKapaliDonem = bnTekDonem ? bnLatest[bankaId].donem : null
+
+    // Birikim hesap listesi
+    const birikimListesi = [birikimRoot, ...(birikimAltlarRes.data || [])].filter(Boolean)
+    setBirikimHesaplar(birikimListesi)
+    const idToAd = {}
+    for (const h of birikimListesi) idToAd[h.id] = h.ad
+    const birikimIdleri = birikimListesi.map(h => h.id)
+
+    // ─── 3. B/N hareketleri + birikim/kişi snapshot paralel ────────────────────
+    // B/N: sadece son kapalı dönem sonrası hareketler (snapshot öncesi zaten dahil)
+    // Birikim ve Kişi snapshot'larını aynı anda çek
+    const [hareketler, birikimSnapRes, kisiSnapRes] = await Promise.all([
+      tumunuCek('hesap_hareketler', 'hesap_id, karsi_hesap_id, tutar, tur', q => {
+        const query = q.in('hesap_id', [bankaId, nakitId])
+        return bnKapaliDonem ? query.gt('donem', bnKapaliDonem) : query
+      }),
+      birikimIdleri.length
+        ? supabase.from('donem_kapanislari').select('hesap_id, kapani_bakiye, donem').in('hesap_id', birikimIdleri)
+        : Promise.resolve({ data: [] }),
+      kisiIdleri.length
+        ? supabase.from('donem_kapanislari').select('hesap_id, kapani_bakiye, donem').in('hesap_id', kisiIdleri)
+        : Promise.resolve({ data: [] }),
+    ])
+
+    // Banka/Nakit bakiyesi — gelir/gider/Birikim-kategorili-transfer doğrudan (işaretli)
+    // tutar; gerçek Banka↔Nakit iç transferleri sadece Banka bacağından sayılır.
     let bankaNet = 0, nakitNet = 0, transferNet = 0
     for (const r of hareketler) {
       const hesapK = r.hesap_id === bankaId
@@ -216,28 +261,56 @@ export default function Dashboard() {
         transferNet += r.tutar || 0
       }
     }
-    const bankaK = baslangicBanka + bankaNet + transferNet
-    const nakitN = baslangicNakit + nakitNet - transferNet
+    // Snapshot varsa kapanış bakiyesi (başlangıcı zaten içerir), yoksa ayar değeri
+    const bankaBaslangic = bnKapaliDonem ? (bnLatest[bankaId]?.kapani_bakiye ?? 0) : parseFloat(baslangicBanka || 0)
+    const nakitBaslangic = bnKapaliDonem ? (bnLatest[nakitId]?.kapani_bakiye ?? 0) : parseFloat(baslangicNakit || 0)
+    const bankaK = bankaBaslangic + bankaNet + transferNet
+    const nakitN = nakitBaslangic + nakitNet - transferNet
 
-    // Birikim özeti — tamamen DB-driven: Birikim (TL) kökü + altındaki birikim/yatırım
-    // hesapları `hesaplar` tablosundan dinamik çekilir (yeni hesap eklemek için kod
-    // değişikliği gerekmez), gösterim anahtarı olarak doğrudan `ad` kullanılır.
-    const { data: birikimAltlar } = await supabase.from('hesaplar')
-      .select('id, ad, doviz_cinsi, emoji, renk')
-      .eq('ust_hesap_id', birikimId)
-      .in('tip', ['birikim', 'yatirim'])
-      .eq('aktif', true)
-      .order('sira')
-    const birikimListesi = [birikimRoot, ...(birikimAltlar || [])].filter(Boolean)
-    setBirikimHesaplar(birikimListesi)
+    // Birikim son kapalı dönem
+    const birikimLatest = {}
+    for (const k of birikimSnapRes.data || []) {
+      if (!birikimLatest[k.hesap_id] || k.donem > birikimLatest[k.hesap_id].donem)
+        birikimLatest[k.hesap_id] = k
+    }
+    const birikimHepsinde = birikimIdleri.every(id => birikimLatest[id])
+    const birikimTekDonem = birikimHepsinde && new Set(birikimIdleri.map(id => birikimLatest[id]?.donem)).size === 1
+    const birikimKapaliDonem = birikimTekDonem ? birikimLatest[birikimIdleri[0]]?.donem : null
 
-    const idToAd = {}
-    for (const h of birikimListesi) idToAd[h.id] = h.ad
-    const birikimIdleri = birikimListesi.map(h => h.id)
-    const birikimHareketleri = birikimIdleri.length
-      ? await tumunuCek('hesap_hareketler', 'hesap_id, tutar', q => q.in('hesap_id', birikimIdleri))
-      : []
+    // Kişi son kapalı dönem
+    const kisiLatest = {}
+    for (const k of kisiSnapRes.data || []) {
+      if (!kisiLatest[k.hesap_id] || k.donem > kisiLatest[k.hesap_id].donem)
+        kisiLatest[k.hesap_id] = k
+    }
+    const kisiHepsinde = kisiIdleri.length > 0 && kisiIdleri.every(id => kisiLatest[id])
+    const kisiTekDonem = kisiHepsinde && new Set(kisiIdleri.map(id => kisiLatest[id]?.donem)).size === 1
+    const kisiKapaliDonem = kisiTekDonem ? kisiLatest[kisiIdleri[0]]?.donem : null
+
+    // ─── 4. Birikim + kişi hareketleri paralel (sadece açık dönem) ──────────────
+    const [birikimHareketleri, kisiHareketleri] = await Promise.all([
+      birikimIdleri.length
+        ? tumunuCek('hesap_hareketler', 'hesap_id, tutar', q => {
+            const query = q.in('hesap_id', birikimIdleri)
+            return birikimKapaliDonem ? query.gt('donem', birikimKapaliDonem) : query
+          })
+        : Promise.resolve([]),
+      kisiIdleri.length
+        ? tumunuCek('hesap_hareketler', 'hesap_id, tutar', q => {
+            const query = q.in('hesap_id', kisiIdleri)
+            return kisiKapaliDonem ? query.gt('donem', kisiKapaliDonem) : query
+          })
+        : Promise.resolve([]),
+    ])
+
+    // Birikim özeti — snapshot bakiyesi + sonrası hareketler
     const ozet = {}
+    if (birikimKapaliDonem) {
+      for (const id of birikimIdleri) {
+        const ad = idToAd[id]
+        if (ad) ozet[ad] = birikimLatest[id]?.kapani_bakiye ?? 0
+      }
+    }
     for (const r of birikimHareketleri) {
       const ad = idToAd[r.hesap_id]
       if (!ad) continue
@@ -256,7 +329,6 @@ export default function Dashboard() {
     const bHesaplar = borcHesaplarRes.data || []
     const bKalemler = borcKalemlerRes.data || []
     const bHarcamalar = borcHarcamalarRes.data || []
-    const kisiHesaplar = kisiHesaplarRes.data || []
 
     const borcOzetMap = {}
     const ensureKey = (doviz) => {
@@ -281,9 +353,12 @@ export default function Dashboard() {
     // eski gösterimde ise pozitif = "ben borçluyum" — bu yüzden -(toplam) ile eski
     // gösterim işaretine çeviriyoruz (BorcAlacak.jsx'teki shim ile aynı).
     if (kisiHesaplar.length) {
-      const kisiIdleri = kisiHesaplar.map(h => h.id)
-      const kisiHareketleri = await tumunuCek('hesap_hareketler', 'hesap_id, tutar', q => q.in('hesap_id', kisiIdleri))
       const kisiToplam = {}
+      // Snapshot varsa başlangıç bakiyesi olarak kullan
+      if (kisiKapaliDonem) {
+        for (const h of kisiHesaplar)
+          kisiToplam[h.id] = kisiLatest[h.id]?.kapani_bakiye ?? 0
+      }
       for (const r of kisiHareketleri) {
         kisiToplam[r.hesap_id] = (kisiToplam[r.hesap_id] || 0) + (r.tutar || 0)
       }
