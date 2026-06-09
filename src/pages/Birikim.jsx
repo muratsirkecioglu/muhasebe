@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, tarihtenDonem, donemLabel } from '../db'
+import { formatPara, formatTarih, yerelTarih, tarihtenDonem, donemLabel, buDonem } from '../db'
 import { Plus, Trash2, Download, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import * as XLSX from 'xlsx'
@@ -431,6 +431,7 @@ export default function Birikim() {
   const [duzenle, setDuzenle] = useState(null)
   const [hareketler, setHareketler] = useState([])
   const [filtreAd, setFiltreAd] = useState('Tümü')
+  const [donemFiltre, setDonemFiltre] = useState(buDonem())
   const [yukleniyor, setYukleniyor] = useState(true)
   const [seciliSatirId, setSeciliSatirId] = useState(null)
   const [hesapMap, setHesapMap] = useState(null)
@@ -501,6 +502,7 @@ export default function Birikim() {
       return {
         id: r.id,
         tarih: r.tarih,
+        donem: r.donem,
         ad,
         doviz_cinsi: hesapMap.HESAPLAR.find(h => h.ad === ad)?.doviz || 'TL',
         alt_tip: r.kategori,
@@ -546,12 +548,14 @@ export default function Birikim() {
     bakiyeler[h.ad] = snap + hareketToplami
   }
 
-  // Filtrelenmiş + sıralanmış liste
-  // Tümü: tarih sırası, Specific: sira sırası büyükten küçüğe (yoksa tarih) — en yeni işlem en yüksek sira değerini alır ve en üstte görünür
+  // Mevcut verideki dönemler (dropdown için)
+  const mevcutDonemler = [...new Set(hareketler.map(r => r.donem).filter(Boolean))].sort((a, b) => b - a)
+
+  // Filtrelenmiş + sıralanmış liste (hesap adı + dönem filtresi)
+  // Tümü: tarih sırası, Specific: sira sırası büyükten küçüğe (yoksa tarih)
   const filtrelenmis = (() => {
-    const base = filtreAd === 'Tümü'
-      ? hareketler
-      : hareketler.filter(r => r.ad === filtreAd)
+    let base = filtreAd === 'Tümü' ? hareketler : hareketler.filter(r => r.ad === filtreAd)
+    if (donemFiltre) base = base.filter(r => r.donem === donemFiltre)
     if (filtreAd === 'Tümü') return base
     return [...base].sort((a, b) => {
       if (a.sira != null && b.sira != null) return b.sira - a.sira
@@ -637,18 +641,29 @@ export default function Birikim() {
         })}
       </div>
 
-      {/* Filtre butonları */}
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-        <button onClick={() => setFiltreAd('Tümü')}
-          className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 border ${
-            filtreAd === 'Tümü' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
-          }`}>Tümü</button>
-        {hesapMap.HESAPLAR.map(h => (
-          <button key={h.ad} onClick={() => setFiltreAd(f => f === h.ad ? 'Tümü' : h.ad)}
-            className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 border transition-colors ${
-              filtreAd === h.ad ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
-            }`}>{h.emoji} {h.ad}</button>
-        ))}
+      {/* Filtre satırı: hesap adı + dönem */}
+      <div className="flex items-center gap-2 mb-4">
+        <div className="flex gap-2 overflow-x-auto pb-1 flex-1">
+          <button onClick={() => setFiltreAd('Tümü')}
+            className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 border ${
+              filtreAd === 'Tümü' ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
+            }`}>Tümü</button>
+          {hesapMap.HESAPLAR.map(h => (
+            <button key={h.ad} onClick={() => setFiltreAd(f => f === h.ad ? 'Tümü' : h.ad)}
+              className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 border transition-colors ${
+                filtreAd === h.ad ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
+              }`}>{h.emoji} {h.ad}</button>
+          ))}
+        </div>
+        <select
+          value={donemFiltre ?? ''}
+          onChange={e => setDonemFiltre(e.target.value ? parseInt(e.target.value) : null)}
+          className="text-xs border border-slate-200 rounded-xl px-2 py-1.5 text-slate-600 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-300">
+          <option value="">Tüm dönemler</option>
+          {mevcutDonemler.map(d => (
+            <option key={d} value={d}>{donemLabel(d)}</option>
+          ))}
+        </select>
       </div>
 
       {/* Tablo */}
