@@ -1,12 +1,7 @@
-import Hesap from './Hesap'
 import Islemler from './Islemler'
 
+// Hesap özeti artık Dashboard sayfasında (Ana.jsx) gösteriliyor.
+// Bu route sadece işlem girişi için kullanılır.
 export default function HesapIslemler() {
-  return (
-    <div>
-      <Hesap />
-      <div className="border-t border-slate-100 mx-4 md:mx-6" />
-      <Islemler />
-    </div>
-  )
+  return <Islemler />
 }

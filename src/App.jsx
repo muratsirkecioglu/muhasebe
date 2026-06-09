@@ -15,7 +15,7 @@ import Login from './pages/Login'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/hesap', icon: BookOpen, label: 'Hesap' },
+  { to: '/hesap', icon: BookOpen, label: 'İşlemler' },
   { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
   { to: '/arac', icon: Car, label: 'Araç' },
