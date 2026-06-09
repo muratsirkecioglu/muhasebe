@@ -148,7 +148,12 @@ function BirikimDuzenleFormu({ kayit, hesaplar, onKapat, onKayit }) {
     // tek bir update ile karşı bacağı senkronize edebiliriz. Eşleşme türüne göre
     // tutar hesaplaması farklı:
     if (kayit.grup_id) {
-      if (kayit._karsiAd === 'Banka' || kayit._karsiAd === 'Nakit') {
+      if (kayit.kategori === 'Borç Verildi' || kayit.kategori === 'Borç Tahsil') {
+        // Çift kayıtlı borç transferi: birikim ↔ borç hesabı, simetrik tutar (işareti ters)
+        await supabase.from('hesap_hareketler')
+          .update({ tarih: form.tarih, tutar: -yeniMiktar })
+          .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+      } else if (kayit._karsiAd === 'Banka' || kayit._karsiAd === 'Nakit') {
         // İşlemler'den gelen "Birikim" kategorili transfer çifti — Banka/Nakit ↔
         // Birikim (TL), ikisi de TL, simetrik (işareti ters) — basit negatif alma yeterli
         await supabase.from('hesap_hareketler')
