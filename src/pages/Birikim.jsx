@@ -447,9 +447,11 @@ export default function Birikim() {
     const hesapIdListesi = hesapMap.HESAPLAR.map(h => h.id)
 
     // Tüm kapanışları çek, JS'de filtrele (bigint ID type uyuşmazlığını önler)
+    // Not: Supabase varsayılan limiti 1000 — açıkça yüksek limit ver
     const { data: tumKapanislar } = await supabase
       .from('donem_kapanislari')
       .select('donem, hesap_id, kapani_bakiye')
+      .limit(10000)
 
     const hesapIdSet = new Set(hesapIdListesi.map(String))
     const kapanislar = (tumKapanislar || []).filter(k => hesapIdSet.has(String(k.hesap_id)))
