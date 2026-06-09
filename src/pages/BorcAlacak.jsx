@@ -1229,9 +1229,23 @@ export default function BorcAlacak() {
   useEffect(() => { yukleHesaplar() }, [yukleHesaplar])
   useEffect(() => { if (secili) yukleDetay(secili.id, secili.tip) }, [secili, yukleDetay])
 
+  // Sadece tek bir kişi hesabının kart bakiyesini sessizce günceller (spinner yok)
+  const yukleBakiyeGuncelle = useCallback(async (hesapId) => {
+    const { data } = await supabase.from('hesap_hareketler').select('tutar').eq('hesap_id', hesapId)
+    const bak = -((data || []).reduce((s, r) => s + (r.tutar || 0), 0))
+    setAktifBakiyeler(prev => ({ ...prev, [hesapId]: { bakiye: bak, guncel: null, toplam: null } }))
+  }, [])
+
   const yenile = () => {
-    yukleHesaplar()
-    if (secili) yukleDetay(secili.id, secili.tip)
+    if (secili?.tip === 'kisi') {
+      // Kişi hesabı: sadece bu hesabın bakiyesini güncelle (spinner olmadan)
+      yukleBakiyeGuncelle(secili.id)
+      yukleDetay(secili.id, secili.tip)
+    } else {
+      // KK hesabı: tüm hesapları yenile (guncel/toplam hesaplaması için gerekli)
+      yukleHesaplar()
+      if (secili) yukleDetay(secili.id, secili.tip)
+    }
   }
 
   const silHareket = async (id) => {
@@ -1244,6 +1258,7 @@ export default function BorcAlacak() {
       } else {
         await supabase.from('hesap_hareketler').delete().eq('id', id)
       }
+      yukleBakiyeGuncelle(secili.id) // kartı da güncelle
     } else {
       await supabase.from('borc_kalemler').delete().eq('id', id)
     }
