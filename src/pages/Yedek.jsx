@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { supabase } from '../supabase'
-import { Download, Upload, CheckCircle, AlertCircle, Loader } from 'lucide-react'
+import { Download, Upload, CheckCircle, AlertCircle, Loader, FileSpreadsheet } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 // FK sırasına göre tablo listesi
 const TABLOLAR = [
@@ -74,6 +75,32 @@ export default function Yedek() {
     setIlerleme('')
   }
 
+  const excelAktar = async () => {
+    setDurum('export')
+    setMesaj('')
+    try {
+      const wb = XLSX.utils.book_new()
+      let toplamKayit = 0
+
+      for (const t of TABLOLAR) {
+        setIlerleme(`${t.ad} çekiliyor…`)
+        const satirlar = await fetchAll(t.ad)
+        if (satirlar.length === 0) continue
+        const ws = XLSX.utils.json_to_sheet(satirlar)
+        XLSX.utils.book_append_sheet(wb, ws, t.ad.slice(0, 31)) // Excel sheet adı max 31 karakter
+        toplamKayit += satirlar.length
+      }
+
+      XLSX.writeFile(wb, `muhasebe-${new Date().toISOString().slice(0, 10)}.xlsx`)
+      setDurum('ok')
+      setMesaj(`${toplamKayit.toLocaleString('tr')} kayıt Excel'e aktarıldı.`)
+    } catch (e) {
+      setDurum('hata')
+      setMesaj(e.message || 'Bilinmeyen hata')
+    }
+    setIlerleme('')
+  }
+
   const iceAktar = async (e) => {
     const dosya = e.target.files?.[0]
     if (!dosya) return
@@ -131,14 +158,22 @@ export default function Yedek() {
             <h2 className="font-semibold text-slate-700 dark:text-slate-200">Dışa Aktar</h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-            Tüm veriler JSON dosyası olarak indirilir.
+            Tüm veriler indirilen dosyaya aktarılır.
           </p>
-          <button
-            onClick={disaAktar}
-            disabled={yukleniyor}
-            className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors">
-            {durum === 'export' ? 'Çekiliyor…' : 'Yedek Al'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={disaAktar}
+              disabled={yukleniyor}
+              className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors">
+              {durum === 'export' ? 'Çekiliyor…' : '📦 JSON'}
+            </button>
+            <button
+              onClick={excelAktar}
+              disabled={yukleniyor}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 hover:bg-emerald-700 transition-colors">
+              📊 Excel
+            </button>
+          </div>
         </div>
 
         {/* İçe Aktar */}
