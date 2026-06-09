@@ -446,11 +446,18 @@ export default function Birikim() {
     setYukleniyor(true)
     const hesapIdListesi = hesapMap.HESAPLAR.map(h => h.id)
 
+    // İki sorgu paralel: snapshot (hesap filtreli) + tüm kapanmış dönemler (filtre yok)
+    const [{ data: kapanislar }, { data: tumKapanislar }] = await Promise.all([
+      supabase
+        .from('donem_kapanislari')
+        .select('donem, hesap_id, kapani_bakiye')
+        .in('hesap_id', hesapIdListesi),
+      supabase
+        .from('donem_kapanislari')
+        .select('donem'),
+    ])
+
     // Son kapalı dönem snapshot'larını bul — tüm hesapların ortak kapandığı dönem
-    const { data: kapanislar } = await supabase
-      .from('donem_kapanislari')
-      .select('donem, hesap_id, kapani_bakiye')
-      .in('hesap_id', hesapIdListesi)
     const latestPerAccount = {}
     for (const k of kapanislar || []) {
       if (!latestPerAccount[k.hesap_id] || k.donem > latestPerAccount[k.hesap_id].donem) {
@@ -471,8 +478,8 @@ export default function Birikim() {
     }
     setBaslangicBakiyeler(snap)
 
-    // Kapalı dönem listesini sakla (dropdown için — kayıtlar lazy yüklenir)
-    const kapaliDonemSeti = new Set((kapanislar || []).map(k => k.donem).filter(Boolean))
+    // Kapalı dönem listesi: tabloda donem kaydı olan HER dönem (hesap filtresi yok)
+    const kapaliDonemSeti = new Set((tumKapanislar || []).map(k => k.donem).filter(Boolean))
     setKapaliDonemler(kapaliDonemSeti)
     // Dönem cache'i sıfırla (hesap listesi değişmiş olabilir)
     setKapaliDonemCache({})
