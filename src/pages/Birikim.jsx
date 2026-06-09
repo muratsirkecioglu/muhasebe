@@ -446,58 +446,48 @@ export default function Birikim() {
     setYukleniyor(true)
     const hesapIdListesi = hesapMap.HESAPLAR.map(h => h.id)
 
-    // Tüm kapanışları çek, JS'de filtrele (bigint ID type uyuşmazlığını önler)
-    // Not: Supabase varsayılan limiti 1000 — açıkça yüksek limit ver
-    const { data: tumKapanislar } = await supabase
-      .from('donem_kapanislari')
-      .select('donem, hesap_id, kapani_bakiye')
-      .limit(10000)
+    // İki paralel sorgu:
+    // 1. Snapshot: birikim hesapları için en yeni kapanışlar (desc sıra, az satır)
+    // 2. Dropdown listesi: tek hesap üzerinden tüm dönemler (max ~120 satır)
+    const ilkHesapId = hesapIdListesi[0]
+    const [{ data: kapanislarRaw }, { data: donemListesi }] = await Promise.all([
+      supabase
+        .from('donem_kapanislari')
+        .select('donem, hesap_id, kapani_bakiye')
+        .in('hesap_id', hesapIdListesi)
+        .order('donem', { ascending: false })
+        .limit(hesapIdListesi.length * 5),   // son 5 dönem her hesap için yeterli
+      supabase
+        .from('donem_kapanislari')
+        .select('donem')
+        .eq('hesap_id', ilkHesapId)          // tek hesap = tüm dönemler (max ~200 satır)
+        .order('donem', { ascending: false }),
+    ])
 
-    const hesapIdSet = new Set(hesapIdListesi.map(String))
-    const kapanislar = (tumKapanislar || []).filter(k => hesapIdSet.has(String(k.hesap_id)))
-
-    // Her hesabın en son kapandığı dönemi bul
+    // Her hesabın en son kapandığı dönem — desc sıralı, ilk karşılaşma = en yeni
     const latestPerAccount = {}
-    for (const k of kapanislar) {
+    for (const k of kapanislarRaw || []) {
       const sid = String(k.hesap_id)
-      if (!latestPerAccount[sid] || k.donem > latestPerAccount[sid].donem) {
-        latestPerAccount[sid] = k
-      }
+      if (!latestPerAccount[sid]) latestPerAccount[sid] = k
     }
-    // Kapanış kaydı olan hesapların en eski ortak kapanış dönemini bul.
-    // Kaydı olmayan hesaplar (yeni eklenen) 0'dan başlar.
     const kapananIds = hesapIdListesi.filter(id => latestPerAccount[String(id)])
     const sonKapaliDonem = kapananIds.length > 0
       ? Math.min(...kapananIds.map(id => latestPerAccount[String(id)].donem))
       : null
 
-    // Başlangıç bakiyeleri: her hesap için sonKapaliDonem'deki snapshot
+    // Başlangıç bakiyeleri: sonKapaliDonem'deki snapshot (desc sıralı, ilk eşleşme)
     const snap = {}
     if (sonKapaliDonem) {
-      const snapPerAccount = {}
-      for (const k of kapanislar) {
-        const sid = String(k.hesap_id)
-        if (k.donem <= sonKapaliDonem) {
-          if (!snapPerAccount[sid] || k.donem > snapPerAccount[sid].donem) {
-            snapPerAccount[sid] = k
-          }
-        }
-      }
       for (const id of hesapIdListesi) {
-        snap[id] = snapPerAccount[String(id)]?.kapani_bakiye ?? 0
+        const sid = String(id)
+        const k = (kapanislarRaw || []).find(r => String(r.hesap_id) === sid && r.donem <= sonKapaliDonem)
+        snap[id] = k?.kapani_bakiye ?? 0
       }
     }
     setBaslangicBakiyeler(snap)
 
-    // DEBUG
-    console.log('tumKapanislar satır sayısı:', (tumKapanislar || []).length)
-    console.log('tumKapanislar max donem:', Math.max(...(tumKapanislar || []).map(k => k.donem).filter(Boolean)))
-    console.log('hesapIdListesi:', hesapIdListesi)
-    console.log('kapanislar (filtreli):', kapanislar.length, 'satır')
-    console.log('sonKapaliDonem:', sonKapaliDonem)
-
-    // Kapalı dönem listesi: tüm kayıtlardaki distinct dönemler
-    const kapaliDonemSeti = new Set((tumKapanislar || []).map(k => k.donem).filter(Boolean))
+    // Kapalı dönem listesi: ilk hesabın tüm kapanış dönemleri (tüm hesaplar eş zamanlı kapanır)
+    const kapaliDonemSeti = new Set((donemListesi || []).map(k => k.donem).filter(Boolean))
     setKapaliDonemler(kapaliDonemSeti)
     // Dönem cache'i sıfırla (hesap listesi değişmiş olabilir)
     setKapaliDonemCache({})
