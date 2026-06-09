@@ -489,6 +489,13 @@ export default function Birikim() {
     }
     setBaslangicBakiyeler(snap)
 
+    // DEBUG
+    console.log('tumKapanislar satır sayısı:', (tumKapanislar || []).length)
+    console.log('tumKapanislar max donem:', Math.max(...(tumKapanislar || []).map(k => k.donem).filter(Boolean)))
+    console.log('hesapIdListesi:', hesapIdListesi)
+    console.log('kapanislar (filtreli):', kapanislar.length, 'satır')
+    console.log('sonKapaliDonem:', sonKapaliDonem)
+
     // Kapalı dönem listesi: tüm kayıtlardaki distinct dönemler
     const kapaliDonemSeti = new Set((tumKapanislar || []).map(k => k.donem).filter(Boolean))
     setKapaliDonemler(kapaliDonemSeti)
