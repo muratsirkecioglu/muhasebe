@@ -288,7 +288,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
   )
 }
 
-export default function Islemler({ onHazir } = {}) {
+export default function Islemler({ onHazir, onKayitDegisti } = {}) {
   const { maskeli } = useMask()
   const [donem, setDonem] = useState(buDonem())
   const [form, setForm] = useState(null)
@@ -360,6 +360,7 @@ export default function Islemler({ onHazir } = {}) {
       await supabase.from('hesap_hareketler').delete().eq('id', id)
     }
     yukle()
+    onKayitDegisti?.()
   }
 
   const satirKey = (r) => String(r.id)
@@ -573,9 +574,9 @@ export default function Islemler({ onHazir } = {}) {
         </div>
       )}
 
-      {form && <IslemFormu tur={form} hesapIds={hesapIds} onKapat={() => setForm(null)} onKayit={yukle} />}
-      {kopya && <IslemFormu tur={kopya.tur} hesapIds={hesapIds} initialValues={kopya.iv} onKapat={() => setKopya(null)} onKayit={yukle} />}
-      {duzenle && <DuzenleFormu kayit={duzenle} hesapIds={hesapIds} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
+      {form && <IslemFormu tur={form} hesapIds={hesapIds} onKapat={() => setForm(null)} onKayit={() => { yukle(); onKayitDegisti?.() }} />}
+      {kopya && <IslemFormu tur={kopya.tur} hesapIds={hesapIds} initialValues={kopya.iv} onKapat={() => setKopya(null)} onKayit={() => { yukle(); onKayitDegisti?.() }} />}
+      {duzenle && <DuzenleFormu kayit={duzenle} hesapIds={hesapIds} onKapat={() => setDuzenle(null)} onKayit={() => { yukle(); onKayitDegisti?.() }} />}
     </div>
   )
 }

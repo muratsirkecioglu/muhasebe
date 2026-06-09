@@ -404,7 +404,7 @@ async function aylikVerileriHesapla() {
   return { satirlar, bankaId, nakitId, birikimId }
 }
 
-export default function Hesap({ onHazir } = {}) {
+export default function Hesap({ onHazir, refreshKey } = {}) {
   const { maskeli } = useMask()
   const gizle = (deger) => maskeli ? '••••' : (deger !== 0 ? formatPara(deger) : '—')
   const [satirlar, setSatirlar] = useState([])
@@ -426,6 +426,8 @@ export default function Hesap({ onHazir } = {}) {
   }, [])
 
   useEffect(() => { yenile() }, [yenile])
+  // İşlemler'den kayıt eklenince/silinince özeti yenile
+  useEffect(() => { if (refreshKey > 0) yenile() }, [refreshKey, yenile])
 
   // İlk yükleme tamamlanınca parent'a haber ver (HesapIslemler koordinasyonu)
   const onHazirRef = useRef(onHazir)
