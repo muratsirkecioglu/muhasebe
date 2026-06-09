@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
 import { buDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
-import { Plus, Trash2, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, Pencil, Copy, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import { useMask } from '../MaskContext'
 
@@ -170,13 +170,13 @@ async function hesapSiraGetir(hesapId) {
   return (data?.[0]?.sira ?? -1) + 1
 }
 
-function IslemFormu({ tur, hesapIds, onKapat, onKayit }) {
+function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
   const [form, setForm] = useState({
     tarih: yerelTarih(new Date()),
-    kategori: tur === 'gider' ? GIDER_KATEGORILER[0] : GELIR_TURLERI[0],
-    k: '',
-    hesap: 'K',
-    aciklama: '',
+    kategori: initialValues?.kategori ?? (tur === 'gider' ? GIDER_KATEGORILER[0] : GELIR_TURLERI[0]),
+    k: initialValues?.k != null ? String(initialValues.k) : '',
+    hesap: initialValues?.hesap ?? 'K',
+    aciklama: initialValues?.aciklama ?? '',
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -293,6 +293,7 @@ export default function Islemler({ onHazir } = {}) {
   const [donem, setDonem] = useState(buDonem())
   const [form, setForm] = useState(null)
   const [duzenle, setDuzenle] = useState(null)
+  const [kopya, setKopya] = useState(null)
   const [islemler, setIslemler] = useState([])
   const [yukleniyor, setYukleniyor] = useState(true)
   const [seciliSatirId, setSeciliSatirId] = useState(null)
@@ -539,6 +540,10 @@ export default function Islemler({ onHazir } = {}) {
                     {/* Aksiyonlar */}
                     <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-0.5 justify-end">
+                        <button onClick={() => setKopya({ tur: r._tur, iv: { kategori: r.kategori, k: r.k, hesap: r.hesap, aciklama: r.aciklama } })}
+                          className="p-1.5 rounded hover:bg-amber-50 text-slate-300 hover:text-amber-400 transition-colors" title="Kopyala">
+                          <Copy size={12} />
+                        </button>
                         <button onClick={() => setDuzenle(r)}
                           className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
                           <Pencil size={12} />
@@ -569,6 +574,7 @@ export default function Islemler({ onHazir } = {}) {
       )}
 
       {form && <IslemFormu tur={form} hesapIds={hesapIds} onKapat={() => setForm(null)} onKayit={yukle} />}
+      {kopya && <IslemFormu tur={kopya.tur} hesapIds={hesapIds} initialValues={kopya.iv} onKapat={() => setKopya(null)} onKayit={yukle} />}
       {duzenle && <DuzenleFormu kayit={duzenle} hesapIds={hesapIds} onKapat={() => setDuzenle(null)} onKayit={yukle} />}
     </div>
   )
