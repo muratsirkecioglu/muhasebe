@@ -13,7 +13,7 @@
 create table if not exists donem_kapanislari (
   id                  uuid primary key default gen_random_uuid(),
   donem               integer not null,          -- YYYYMM (örn. 202401)
-  hesap_id            uuid not null references hesaplar(id) on delete cascade,
+  hesap_id            bigint not null references hesaplar(id) on delete cascade,
   kapani_bakiye       numeric not null default 0, -- dönem sonu kümülatif bakiye
   donem_gelir         numeric not null default 0, -- o dönemdeki gelir toplamı
   donem_gider         numeric not null default 0, -- o dönemdeki gider toplamı
