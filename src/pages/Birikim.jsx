@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, tarihtenDonem } from '../db'
+import { formatPara, formatTarih, yerelTarih, tarihtenDonem, donemLabel } from '../db'
 import { Plus, Trash2, Download, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import * as XLSX from 'xlsx'
@@ -103,6 +103,18 @@ async function hesaplarGetir() {
   return _hesaplarCache
 }
 
+// Kayıt kaydedildikten sonra dönemin kapalı olup olmadığını kontrol eder.
+async function kapaliDonemKontrol(donem) {
+  if (!donem) return
+  const { count } = await supabase
+    .from('donem_kapanislari')
+    .select('id', { count: 'exact', head: true })
+    .eq('donem', donem)
+  if ((count ?? 0) > 0) {
+    alert(`⚠️ ${donemLabel(donem)} dönemi kapatılmış.\nDeğişikliklerinizin bakiyeye yansıması için Hesap sayfasından bu dönemi yeniden hesaplamanız gerekebilir.`)
+  }
+}
+
 function BirikimDuzenleFormu({ kayit, hesaplar, onKapat, onKayit }) {
   const hesap = hesaplar.find(h => h.ad === kayit.ad)
   const isDoviz = hesap && hesap.doviz !== 'TL'
@@ -155,6 +167,7 @@ function BirikimDuzenleFormu({ kayit, hesaplar, onKapat, onKayit }) {
       // düzenlenmesi gerekir) — davranış değişmedi.
     }
 
+    await kapaliDonemKontrol(kayit.donem)
     onKayit(); onKapat()
   }
 
@@ -308,6 +321,7 @@ function IslemFormu({ hesapMap, onKapat, onKayit }) {
     for (const kt of kayitlar) kt.sira = ++maxSiralar[kt.hesap_id]
 
     await supabase.from('hesap_hareketler').insert(kayitlar)
+    await kapaliDonemKontrol(donem)
     onKayit(); onKapat()
   }
 

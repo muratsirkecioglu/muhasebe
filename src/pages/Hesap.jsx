@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, donemLabel, buDonem } from '../db'
 import { useMask } from '../MaskContext'
-import { Settings, Plus, Pencil, Trash2, X } from 'lucide-react'
+import { Settings, Plus, Pencil, Trash2, X, Lock } from 'lucide-react'
 
 const BASLANGIC_DONEM = 201604
 const BASLANGIC_K = 269
@@ -271,7 +271,7 @@ function HesapYonetimi({ onKapat }) {
 }
 
 async function aylikVerileriHesapla() {
-  // Tüm kayıtları sayfalı olarak çek
+  // Tüm kayıtları sayfalı olarak çek (deterministik sıralama için id ikincil anahtar)
   async function tumunuCek(tablo, kolonlar, filtreFn) {
     const SAYFA = 1000
     let tumVeriler = []
@@ -288,30 +288,47 @@ async function aylikVerileriHesapla() {
     return tumVeriler
   }
 
-  // Banka / Nakit / Birikim (TL) hesap id'lerini bul (yeni mimari: hesaplar + hesap_hareketler)
+  // Banka / Nakit / Birikim (TL) hesap id'lerini bul
   const { data: hesapList } = await supabase.from('hesaplar').select('id, ad').in('ad', ['Banka', 'Nakit', 'Birikim (TL)'])
   const bankaId = hesapList?.find(h => h.ad === 'Banka')?.id
   const nakitId = hesapList?.find(h => h.ad === 'Nakit')?.id
   const birikimId = hesapList?.find(h => h.ad === 'Birikim (TL)')?.id
 
+  // Kapalı dönem snapshotlarını çek
+  const { data: kapanislarRaw } = await supabase
+    .from('donem_kapanislari')
+    .select('donem, hesap_id, kapani_bakiye, donem_gelir, donem_gider, donem_transfer_net')
+    .in('hesap_id', [bankaId, nakitId])
+    .order('donem', { ascending: true })
+
+  // Snapshot'ları dönem → { banka, nakit } map'ine dönüştür
+  const kapanisMap = {}
+  for (const k of kapanislarRaw || []) {
+    if (!kapanisMap[k.donem]) kapanisMap[k.donem] = {}
+    if (k.hesap_id === bankaId) kapanisMap[k.donem].banka = k
+    if (k.hesap_id === nakitId) kapanisMap[k.donem].nakit = k
+  }
+  const kapaliDonemler = new Set(Object.keys(kapanisMap).map(Number))
+  const sonKapaliDonem = kapaliDonemler.size > 0
+    ? Math.max(...kapaliDonemler)
+    : null
+
+  // Sadece açık dönemlerin hareketlerini çek (son kapalı dönem sonrası)
   const [hareketler, { data: ayarlar }] = await Promise.all([
-    tumunuCek('hesap_hareketler', 'donem, hesap_id, karsi_hesap_id, tutar, tur', q => q.in('hesap_id', [bankaId, nakitId])),
+    tumunuCek('hesap_hareketler', 'donem, hesap_id, karsi_hesap_id, tutar, tur', q => {
+      let query = q.in('hesap_id', [bankaId, nakitId])
+      if (sonKapaliDonem) query = query.gt('donem', sonKapaliDonem)
+      return query
+    }),
     supabase.from('ayarlar').select('anahtar, deger'),
   ])
 
   const ayarMap = {}
   for (const a of ayarlar || []) ayarMap[a.anahtar] = a.deger
-  const baslangicK = ayarMap['baslangic_banka'] ?? BASLANGIC_K
-  const baslangicN = ayarMap['baslangic_nakit'] ?? BASLANGIC_N
+  const baslangicK = parseFloat(ayarMap['baslangic_banka'] ?? BASLANGIC_K)
+  const baslangicN = parseFloat(ayarMap['baslangic_nakit'] ?? BASLANGIC_N)
 
-  // Tüm dönemleri topla
-  const donemler = new Set()
-  for (const r of hareketler) {
-    if (r.donem) donemler.add(r.donem)
-  }
-  const sirali = [...donemler].filter(d => d >= BASLANGIC_DONEM).sort()
-
-  // Dönem bazlı grupla — tur'a göre ayrıştır (gider/gelir/transfer)
+  // Açık dönem hareketlerini dönem bazlı grupla
   // ÖNEMLİ AYRIM: 'transfer' türündeki kayıtların hepsi gerçek Banka↔Nakit iç
   // transferi DEĞİL — İşlemler ekranında "Birikim" kategorisiyle girilen gider/gelir
   // kayıtları da artık (Banka/Nakit ↔ Birikim (TL)) gerçek transfer çifti olarak
@@ -320,11 +337,6 @@ async function aylikVerileriHesapla() {
   // gibi sayılıyordu (K/N havuzundan gerçek çıkış/giriş). O davranışla birebir
   // eşleşmesi için: karsi_hesap_id === birikimId olan transfer kayıtlarını gider/gelir
   // gibi say; sadece Banka↔Nakit arasındaki gerçek iç transferleri transferNet'e ekle.
-  //
-  // Gerçek iç transferler simetrik olduğundan, sadece Banka bacağındaki tutar = net
-  // (Nakit→Banka - Banka→Nakit) değerini verir; bu da eski nk.K - nk.N net'iyle
-  // birebir eşleşir (brüt K/N ayrımı artık tutulmuyor, AŞAMA 1 migrasyonunda netleme
-  // kararı zaten alınmıştı).
   const map = {}
   for (const r of hareketler) {
     if (!r.donem) continue
@@ -339,7 +351,6 @@ async function aylikVerileriHesapla() {
       else m.giderN += -(r.tutar || 0)
     } else if (r.tur === 'transfer') {
       if (r.karsi_hesap_id === birikimId) {
-        // "Birikim" kategorili gider/gelir muadili — K/N havuzu açısından gerçek çıkış/giriş
         if ((r.tutar || 0) < 0) {
           if (hesapK) m.giderK += -(r.tutar || 0)
           else m.giderN += -(r.tutar || 0)
@@ -348,47 +359,98 @@ async function aylikVerileriHesapla() {
           else m.gelirN += r.tutar || 0
         }
       } else if (hesapK) {
-        // gerçek Banka↔Nakit iç transferi
         m.transferNet += r.tutar || 0
       }
     }
   }
 
-  // Kümülatif hesapla
-  let cumK = baslangicK, cumN = baslangicN
+  // Tablo satırlarını oluştur
   const satirlar = []
 
-  // Başlangıç satırı
-  satirlar.push({ donem: BASLANGIC_DONEM, gelirK: 0, gelirN: 0, giderK: 0, giderN: 0, transferNet: 0, bakiyeK: cumK, bakiyeN: cumN, ilk: true })
+  // 1. Başlangıç satırı
+  satirlar.push({ donem: BASLANGIC_DONEM, gelirK: 0, gelirN: 0, giderK: 0, giderN: 0, transferNet: 0, bakiyeK: baslangicK, bakiyeN: baslangicN, ilk: true, kapali: false })
 
-  for (const d of sirali) {
-    if (d === BASLANGIC_DONEM) continue
-    const m = map[d] || { gelirK: 0, gelirN: 0, giderK: 0, giderN: 0, transferNet: 0 }
-
-    cumK = cumK + m.gelirK - m.giderK + m.transferNet
-    cumN = cumN + m.gelirN - m.giderN - m.transferNet
-
-    satirlar.push({ donem: d, gelirK: m.gelirK, gelirN: m.gelirN, giderK: m.giderK, giderN: m.giderN, transferNet: m.transferNet, bakiyeK: cumK, bakiyeN: cumN })
+  // 2. Kapalı dönem satırları — doğrudan snapshot'tan (hareket çekilmez)
+  for (const d of [...kapaliDonemler].sort((a, b) => a - b)) {
+    const b = kapanisMap[d].banka
+    const n = kapanisMap[d].nakit
+    satirlar.push({
+      donem: d,
+      gelirK:       b?.donem_gelir        ?? 0,
+      giderK:       b?.donem_gider        ?? 0,
+      gelirN:       n?.donem_gelir        ?? 0,
+      giderN:       n?.donem_gider        ?? 0,
+      transferNet:  b?.donem_transfer_net ?? 0,
+      bakiyeK:      b?.kapani_bakiye      ?? 0,
+      bakiyeN:      n?.kapani_bakiye      ?? 0,
+      kapali: true,
+    })
   }
 
-  return satirlar
+  // 3. Açık dönem satırları — hesap_hareketler'den hesaplanır
+  // Son kapalı dönemin bakiyesini kümülatif başlangıç olarak al
+  let cumK = sonKapaliDonem ? (kapanisMap[sonKapaliDonem].banka?.kapani_bakiye ?? baslangicK) : baslangicK
+  let cumN = sonKapaliDonem ? (kapanisMap[sonKapaliDonem].nakit?.kapani_bakiye ?? baslangicN) : baslangicN
+
+  const acikDonemler = [...new Set(hareketler.map(r => r.donem).filter(Boolean))].sort((a, b) => a - b)
+  for (const d of acikDonemler) {
+    if (d <= BASLANGIC_DONEM || kapaliDonemler.has(d)) continue
+    const m = map[d] || { gelirK: 0, gelirN: 0, giderK: 0, giderN: 0, transferNet: 0 }
+    cumK = cumK + m.gelirK - m.giderK + m.transferNet
+    cumN = cumN + m.gelirN - m.giderN - m.transferNet
+    satirlar.push({ donem: d, gelirK: m.gelirK, gelirN: m.gelirN, giderK: m.giderK, giderN: m.giderN, transferNet: m.transferNet, bakiyeK: cumK, bakiyeN: cumN, kapali: false })
+  }
+
+  return { satirlar, bankaId, nakitId, birikimId }
 }
 
 export default function Hesap() {
   const { maskeli } = useMask()
   const gizle = (deger) => maskeli ? '••••' : (deger !== 0 ? formatPara(deger) : '—')
   const [satirlar, setSatirlar] = useState([])
+  const [meta, setMeta] = useState(null)           // { bankaId, nakitId, birikimId }
   const [yukleniyor, setYukleniyor] = useState(true)
-  const [filtre, setFiltre] = useState('son6') // 'son6' | 'son12' | 'tamami'
+  const [filtre, setFiltre] = useState('son6')     // 'son6' | 'son12' | 'tamami'
   const [yonetimAcik, setYonetimAcik] = useState(false)
+  const [acmaOnay, setAcmaOnay] = useState(null)   // unlock onay dialog için donem
+  const [kapaniyor, setKapaniyor] = useState(null) // kapat işlemi devam eden donem
   const mevcutDonem = buDonem()
 
-  useEffect(() => {
-    aylikVerileriHesapla().then(data => {
-      setSatirlar(data)
+  const yenile = useCallback(() => {
+    setYukleniyor(true)
+    aylikVerileriHesapla().then(({ satirlar: s, bankaId, nakitId, birikimId }) => {
+      setSatirlar(s)
+      setMeta({ bankaId, nakitId, birikimId })
       setYukleniyor(false)
     })
   }, [])
+
+  useEffect(() => { yenile() }, [yenile])
+
+  // Dönemi kapat: tüm hesaplar için snapshot oluştur
+  const handleKapat = async (donem) => {
+    if (!meta) return
+    const r = satirlar.find(s => s.donem === donem)
+    if (!r) return
+    setKapaniyor(donem)
+    await supabase.from('donem_kapanislari').upsert([
+      { donem, hesap_id: meta.bankaId, kapani_bakiye: r.bakiyeK, donem_gelir: r.gelirK, donem_gider: r.giderK, donem_transfer_net: r.transferNet },
+      { donem, hesap_id: meta.nakitId, kapani_bakiye: r.bakiyeN, donem_gelir: r.gelirN, donem_gider: r.giderN, donem_transfer_net: 0 },
+    ], { onConflict: 'donem,hesap_id' })
+    setKapaniyor(null)
+    yenile()
+  }
+
+  // Dönemi aç: o dönem ve sonrasındaki kapanışları sil
+  const handleAc = async (donem) => {
+    if (!meta) return
+    await supabase.from('donem_kapanislari')
+      .delete()
+      .gte('donem', donem)
+      .in('hesap_id', [meta.bankaId, meta.nakitId])
+    setAcmaOnay(null)
+    yenile()
+  }
 
   const gosterilen = (() => {
     const liste = filtre === 'son6' ? satirlar.slice(-6)
@@ -438,6 +500,7 @@ export default function Hesap() {
               <th className="text-right px-3 py-2.5 font-semibold text-red-500">Gider B</th>
               <th className="text-right px-3 py-2.5 font-semibold text-red-300">Gider N</th>
               <th className="text-right px-3 py-2.5 font-semibold text-slate-400">Transfer (net)</th>
+              <th className="text-center px-3 py-2.5 font-semibold text-slate-400">Durum</th>
             </tr>
           </thead>
           <tbody>
@@ -462,6 +525,25 @@ export default function Hesap() {
                     title={r.transferNet > 0 ? 'Net: Nakit → Banka' : r.transferNet < 0 ? 'Net: Banka → Nakit' : ''}>
                   {r.transferNet !== 0 ? formatPara(r.transferNet) : '—'}
                 </td>
+                <td className="px-3 py-2 text-center">
+                  {r.ilk || r.donem === mevcutDonem ? (
+                    <span className="text-slate-300 text-[10px]">—</span>
+                  ) : r.kapali ? (
+                    <button
+                      onClick={() => setAcmaOnay(r.donem)}
+                      title="Kapalı — yeniden hesaplamak için tıkla"
+                      className="text-slate-400 hover:text-amber-500 transition-colors">
+                      <Lock size={13} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleKapat(r.donem)}
+                      disabled={kapaniyor === r.donem}
+                      className="text-[10px] px-2 py-0.5 rounded border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 transition-colors disabled:opacity-40">
+                      {kapaniyor === r.donem ? '...' : 'Kapat'}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -469,8 +551,45 @@ export default function Hesap() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        Toplam {satirlar.length} ay · Başlangıç: B=₺{formatPara(BASLANGIC_K)}, N=₺{formatPara(BASLANGIC_N)}
+        Toplam {satirlar.length} ay
+        {satirlar.filter(r => r.kapali).length > 0 && (
+          <> · <Lock size={10} className="inline mb-0.5" /> {satirlar.filter(r => r.kapali).length} dönem kapalı</>
+        )}
+        {' · '}Başlangıç: B=₺{formatPara(BASLANGIC_K)}, N=₺{formatPara(BASLANGIC_N)}
       </p>
+
+      {/* Unlock onay dialog */}
+      {acmaOnay && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <Lock size={18} className="text-amber-600" />
+              </div>
+              <h3 className="font-semibold text-slate-800">Dönemi Yeniden Aç</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-1">
+              <strong>{donemLabel(acmaOnay)}</strong> dönemi kapalı.
+            </p>
+            <p className="text-sm text-slate-500 mb-4">
+              Bu dönem ve sonrasındaki tüm kapalı dönemler yeniden açılacak.
+              Verileri kontrol edip dönemleri tekrar kapatmanız gerekecektir.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setAcmaOnay(null)}
+                className="px-4 py-2 text-sm rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                İptal
+              </button>
+              <button
+                onClick={() => handleAc(acmaOnay)}
+                className="px-4 py-2 text-sm rounded-xl bg-amber-500 text-white hover:bg-amber-600 font-medium transition-colors">
+                Yeniden Aç
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

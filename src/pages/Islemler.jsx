@@ -34,6 +34,19 @@ async function hesapIdleriGetir() {
   return _hesapIdCache
 }
 
+// Kayıt kaydedildikten sonra dönemin kapalı olup olmadığını kontrol eder.
+// Kapalıysa non-blocking uyarı gösterir — Hesap sayfasından yeniden hesaplanması hatırlatılır.
+async function kapaliDonemKontrol(donem) {
+  if (!donem) return
+  const { count } = await supabase
+    .from('donem_kapanislari')
+    .select('id', { count: 'exact', head: true })
+    .eq('donem', donem)
+  if ((count ?? 0) > 0) {
+    alert(`⚠️ ${donemLabel(donem)} dönemi kapatılmış.\nDeğişikliklerinizin bakiyeye yansıması için Hesap sayfasından bu dönemi yeniden hesaplamanız gerekebilir.`)
+  }
+}
+
 function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
   const tur = kayit._tur
   const kategoriler = tur === 'gider' ? GIDER_KATEGORILER : GELIR_TURLERI
@@ -77,6 +90,7 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
         .neq('id', kayit.id)
     }
 
+    await kapaliDonemKontrol(yeniDonem)
     onKayit(); onKapat()
   }
 
@@ -209,6 +223,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit }) {
       })
     }
 
+    await kapaliDonemKontrol(donem)
     onKayit()
     onKapat()
   }
