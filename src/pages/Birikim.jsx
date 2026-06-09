@@ -148,28 +148,19 @@ function BirikimDuzenleFormu({ kayit, hesaplar, onKapat, onKayit }) {
     // tek bir update ile karşı bacağı senkronize edebiliriz. Eşleşme türüne göre
     // tutar hesaplaması farklı:
     if (kayit.grup_id) {
-      if (kayit.kategori === 'Borç Verildi' || kayit.kategori === 'Borç Tahsil') {
-        // Çift kayıtlı borç transferi: birikim ↔ borç hesabı, simetrik tutar (işareti ters)
-        await supabase.from('hesap_hareketler')
-          .update({ tarih: form.tarih, tutar: -yeniMiktar })
-          .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
-      } else if (kayit._karsiAd === 'Banka' || kayit._karsiAd === 'Nakit') {
-        // İşlemler'den gelen "Birikim" kategorili transfer çifti — Banka/Nakit ↔
-        // Birikim (TL), ikisi de TL, simetrik (işareti ters) — basit negatif alma yeterli
-        await supabase.from('hesap_hareketler')
-          .update({ tarih: form.tarih, tutar: -yeniMiktar })
-          .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
-      } else if (kayit.ad !== 'Birikim (TL)') {
-        // Birikim içi çift: TL yatırım simetrik, döviz asimetrik (TL karşılığı üzerinden)
-        const tlYatirim = hesap?.doviz === 'TL'
-        const karsiTutar = tlYatirim ? yeniIslemTL : -yeniIslemTL
+      if (kayit._karsiAd === 'Birikim (TL)') {
+        // Döviz ↔ Birikim (TL) çifti: karşı bacağa TL karşılığı yazılır
+        // (mevcut hesap TL ise isarını koru, dövizse ters çevir)
+        const karsiTutar = hesap?.doviz === 'TL' ? yeniIslemTL : -yeniIslemTL
         await supabase.from('hesap_hareketler')
           .update({ tarih: form.tarih, tutar: karsiTutar, islem_tl: karsiTutar })
           .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
+      } else {
+        // Borç hesabı, Banka, Nakit veya diğer: simetrik native tutar (işareti ters)
+        await supabase.from('hesap_hareketler')
+          .update({ tarih: form.tarih, tutar: -yeniMiktar })
+          .eq('grup_id', kayit.grup_id).neq('id', kayit.id)
       }
-      // kayit.ad === 'Birikim (TL)' && karşı taraf bir Birikim/Yatırım hesabıysa:
-      // eskiden olduğu gibi karşı bacak burada güncellenmez (o hesabın listesinden
-      // düzenlenmesi gerekir) — davranış değişmedi.
     }
 
     await kapaliDonemKontrol(kayit.donem)
