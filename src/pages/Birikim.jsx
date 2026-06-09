@@ -434,6 +434,7 @@ export default function Birikim() {
   const [yukleniyor, setYukleniyor] = useState(true)
   const [seciliSatirId, setSeciliSatirId] = useState(null)
   const [hesapMap, setHesapMap] = useState(null)
+  const [baslangicBakiyeler, setBaslangicBakiyeler] = useState({}) // hesap_id → snapshot bakiye
 
   useEffect(() => { hesaplarGetir().then(setHesapMap) }, [])
 
@@ -443,30 +444,49 @@ export default function Birikim() {
   const yukle = useCallback(async () => {
     if (!hesapMap) return
     setYukleniyor(true)
-    // DİKKAT: yalnızca Birikim (TL) + alt hesapların hareketleri çekilmeli — Banka/Nakit
-    // id'leri idToAd'da SADECE _karsiAd görüntü etiketini çözmek için bulunuyor (bkz.
-    // hesaplarGetir). Onları bu listeye dahil etmek, yıllarca biriken TÜM Banka/Nakit
-    // gelir/gider kayıtlarının da çekilmesine yol açar — hem çok yavaş hem de (sayfalama
-    // sırasında bir hata/limit oluşursa) Birikim (TL) bakiyesinin EKSİK/YANLIŞ hesabına
-    // sebep olabilir.
     const hesapIdListesi = hesapMap.HESAPLAR.map(h => h.id)
+
+    // Son kapalı dönem snapshot'larını bul — tüm hesapların ortak kapandığı dönem
+    const { data: kapanislar } = await supabase
+      .from('donem_kapanislari')
+      .select('donem, hesap_id, kapani_bakiye')
+      .in('hesap_id', hesapIdListesi)
+    const latestPerAccount = {}
+    for (const k of kapanislar || []) {
+      if (!latestPerAccount[k.hesap_id] || k.donem > latestPerAccount[k.hesap_id].donem) {
+        latestPerAccount[k.hesap_id] = k
+      }
+    }
+    const hepsindeBulgular = hesapIdListesi.every(id => latestPerAccount[id])
+    const donems = hesapIdListesi.map(id => latestPerAccount[id]?.donem)
+    const tekDonem = hepsindeBulgular && new Set(donems).size === 1
+    const sonKapaliDonem = tekDonem ? donems[0] : null
+
+    // Başlangıç bakiyeleri (snapshot'tan) — hesap_id → bakiye
+    const snap = {}
+    if (sonKapaliDonem) {
+      for (const id of hesapIdListesi) {
+        snap[id] = latestPerAccount[id]?.kapani_bakiye ?? 0
+      }
+    }
+    setBaslangicBakiyeler(snap)
+
+    // Sadece açık dönemlerin hareketlerini çek
+    // `tarih` tek başına sayfalama için GÜVENİLİR DEĞİL — birçok kayıt aynı
+    // tarih değerine sahip olabilir; `id` ikincil anahtarı sıralamayı
+    // deterministik (kararlı) hale getirir (bkz. unstable pagination düzeltmesi).
     const SAYFA = 1000
     let tumVeriler = []
     let sayfa = 0
     while (true) {
-      const { data, error } = await supabase
+      let q = supabase
         .from('hesap_hareketler')
         .select('*')
         .in('hesap_id', hesapIdListesi)
-        // `tarih` tek başına sayfalama için GÜVENİLİR DEĞİL — birçok kayıt aynı
-        // tarih değerine sahip olabilir (örn. aynı güne ait işlemler) ve Postgres
-        // eşit değerli satırların göreli sırasını garanti etmez; bu da .range()
-        // sayfalamasında satırların atlanmasına/mükerrer gelmesine (ve dolayısıyla
-        // yanlış bakiye toplamına) yol açar. `id` ikincil anahtarı sıralamayı
-        // deterministik (kararlı) hale getirir.
         .order('tarih', { ascending: false })
         .order('id', { ascending: false })
-        .range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
+      if (sonKapaliDonem) q = q.gt('donem', sonKapaliDonem)
+      const { data, error } = await q.range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
       if (error || !data || data.length === 0) break
       tumVeriler = [...tumVeriler, ...data]
       if (data.length < SAYFA) break
@@ -518,10 +538,12 @@ export default function Birikim() {
     </div>
   )
 
-  // Bakiyeler — tüm kayıtlardan hesaplanır
+  // Bakiyeler — snapshot başlangıç bakiyesi + açık dönem hareketleri
   const bakiyeler = {}
   for (const h of hesapMap.HESAPLAR) {
-    bakiyeler[h.ad] = hareketler.filter(r => r.ad === h.ad).reduce((s, r) => s + (r.miktar || 0), 0)
+    const snap = baslangicBakiyeler[h.id] ?? 0
+    const hareketToplami = hareketler.filter(r => r.ad === h.ad).reduce((s, r) => s + (r.miktar || 0), 0)
+    bakiyeler[h.ad] = snap + hareketToplami
   }
 
   // Filtrelenmiş + sıralanmış liste

@@ -427,27 +427,81 @@ export default function Hesap() {
 
   useEffect(() => { yenile() }, [yenile])
 
-  // Dönemi kapat: tüm hesaplar için snapshot oluştur
+  // Dönemi kapat: Banka/Nakit + tüm Birikim alt hesapları için snapshot oluştur
   const handleKapat = async (donem) => {
     if (!meta) return
     const r = satirlar.find(s => s.donem === donem)
     if (!r) return
     setKapaniyor(donem)
-    await supabase.from('donem_kapanislari').upsert([
+
+    // Banka / Nakit snapshot
+    const kapanisKayitlari = [
       { donem, hesap_id: meta.bankaId, kapani_bakiye: r.bakiyeK, donem_gelir: r.gelirK, donem_gider: r.giderK, donem_transfer_net: r.transferNet },
       { donem, hesap_id: meta.nakitId, kapani_bakiye: r.bakiyeN, donem_gelir: r.gelirN, donem_gider: r.giderN, donem_transfer_net: 0 },
-    ], { onConflict: 'donem,hesap_id' })
+    ]
+
+    // Birikim snapshot — Birikim (TL) kök + tüm aktif alt hesaplar
+    const { data: birikimAltlar } = await supabase
+      .from('hesaplar')
+      .select('id')
+      .eq('ust_hesap_id', meta.birikimId)
+      .in('tip', ['birikim', 'yatirim'])
+      .eq('aktif', true)
+    const birikimIds = [meta.birikimId, ...(birikimAltlar || []).map(h => h.id)]
+
+    // Bu hesaplar için en son önceki snapshot'ları bul
+    const { data: oncekiSnap } = await supabase
+      .from('donem_kapanislari')
+      .select('donem, hesap_id, kapani_bakiye')
+      .in('hesap_id', birikimIds)
+      .lt('donem', donem)
+    const latestPerAccount = {}
+    for (const k of oncekiSnap || []) {
+      if (!latestPerAccount[k.hesap_id] || k.donem > latestPerAccount[k.hesap_id].donem) {
+        latestPerAccount[k.hesap_id] = k
+      }
+    }
+
+    // Hepsinin aynı donemde kapanmış olduğu güvenli başlangıç dönemi
+    // (farklı donemler veya eksik snapshot varsa baştan hesapla)
+    const hepsindeBulgular = birikimIds.every(id => latestPerAccount[id])
+    const donems = birikimIds.map(id => latestPerAccount[id]?.donem)
+    const tekDonem = hepsindeBulgular && new Set(donems).size === 1
+    const oncekiDonem = tekDonem ? donems[0] : null
+
+    // Önceki kapanış sonrası bu döneme kadar olan hareketleri çek
+    let txQ = supabase
+      .from('hesap_hareketler')
+      .select('hesap_id, tutar, donem')
+      .in('hesap_id', birikimIds)
+      .lte('donem', donem)
+    if (oncekiDonem) txQ = txQ.gt('donem', oncekiDonem)
+    const { data: birikimHareketler } = await txQ
+
+    // Her hesap için toplam hareket artışı
+    const artisMap = {}
+    for (const h of birikimHareketler || []) {
+      artisMap[h.hesap_id] = (artisMap[h.hesap_id] || 0) + (h.tutar || 0)
+    }
+
+    // Snapshot kayıtlarını oluştur
+    for (const id of birikimIds) {
+      const oncekiBakiye = latestPerAccount[id]?.kapani_bakiye ?? 0
+      kapanisKayitlari.push({
+        donem, hesap_id: id,
+        kapani_bakiye: oncekiBakiye + (artisMap[id] ?? 0),
+        donem_gelir: 0, donem_gider: 0, donem_transfer_net: 0,
+      })
+    }
+
+    await supabase.from('donem_kapanislari').upsert(kapanisKayitlari, { onConflict: 'donem,hesap_id' })
     setKapaniyor(null)
     yenile()
   }
 
-  // Dönemi aç: o dönem ve sonrasındaki kapanışları sil
+  // Dönemi aç: o dönem ve sonrasındaki TÜM hesap kapanışlarını sil
   const handleAc = async (donem) => {
-    if (!meta) return
-    await supabase.from('donem_kapanislari')
-      .delete()
-      .gte('donem', donem)
-      .in('hesap_id', [meta.bankaId, meta.nakitId])
+    await supabase.from('donem_kapanislari').delete().gte('donem', donem)
     setAcmaOnay(null)
     yenile()
   }
