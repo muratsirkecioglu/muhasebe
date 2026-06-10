@@ -482,28 +482,26 @@ export default function Projeksiyon() {
             const pozitif = net >= 0
             return (
               <div key={doviz} className={`rounded-2xl border p-4 ${pozitif ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{doviz} — Aylık</p>
-                    <div className="flex gap-4 text-xs">
-                      <span className="flex items-center gap-1">
-                        <TrendingUp size={11} className="text-green-500" />
-                        <span className="text-slate-500">Gelir:</span>
-                        <strong className="text-green-600">{sem}{para(gelir)}</strong>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <TrendingDown size={11} className="text-red-400" />
-                        <span className="text-slate-500">Gider:</span>
-                        <strong className="text-red-500">{sem}{para(gider)}</strong>
-                      </span>
-                    </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{doviz} — Aylık</p>
+                  <div className="flex gap-4 text-xs">
+                    <span className="flex items-center gap-1">
+                      <TrendingUp size={11} className="text-green-500" />
+                      <span className="text-slate-500">Gelir:</span>
+                      <strong className="text-green-600">{sem}{para(gelir)}</strong>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <TrendingDown size={11} className="text-red-400" />
+                      <span className="text-slate-500">Gider:</span>
+                      <strong className="text-red-500">{sem}{para(gider)}</strong>
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-400 mb-0.5">{pozitif ? 'Aylık Fazla' : 'Aylık Açık'}</p>
-                    <p className={`text-2xl font-bold leading-tight ${pozitif ? 'text-green-600' : 'text-red-500'}`}>
-                      {pozitif ? '+' : '-'}{sem}{para(Math.abs(net))}
-                    </p>
-                  </div>
+                </div>
+                <div className="text-right mt-2">
+                  <p className="text-[10px] text-slate-400 mb-0.5">{pozitif ? 'Aylık Fazla' : 'Aylık Açık'}</p>
+                  <p className={`text-2xl font-bold leading-tight ${pozitif ? 'text-green-600' : 'text-red-500'}`}>
+                    {pozitif ? '+' : '-'}{sem}{para(Math.abs(net))}
+                  </p>
                 </div>
                 <div className={`mt-3 text-xs font-medium rounded-lg px-3 py-1.5 block ${
                   pozitif ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
