@@ -65,7 +65,7 @@ function KalemFormu({ kalem, onKapat, onKayit }) {
   const set = (field, val) => setForm(f => ({ ...f, [field]: val }))
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">

@@ -102,7 +102,7 @@ function HesapFormu({ onKapat, onKayit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">➕ Yeni Hesap</h3>
@@ -191,7 +191,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">✏️ Hesabı Düzenle</h3>
@@ -286,7 +286,7 @@ function KalemDuzenleFormu({ kalem, doviz_cinsi, tip, onKapat, onKayit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">✏️ Kalemi Düzenle</h3>
@@ -450,7 +450,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
   const eslesti = fark < 0.01
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100 flex-shrink-0">
           <h3 className="font-semibold text-slate-800">✏️ Taksitleri Düzenle</h3>
@@ -586,7 +586,7 @@ function AlOdeFormu({ hesap, onKapat, onKayit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">👤 {hesap.ad}</h3>
@@ -688,7 +688,7 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">✏️ Harcamayı Düzenle</h3>
@@ -855,7 +855,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
   const tutarEslesti = fark < 0.01
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[92vh]">
         <div className="p-5 border-b border-slate-100 flex-shrink-0">
           <h3 className="font-semibold text-slate-800">📅 Taksitli Harcama — {hesap.ad}</h3>
@@ -1049,7 +1049,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">✂️ Ekstre Kes — {hesap.ad}</h3>
