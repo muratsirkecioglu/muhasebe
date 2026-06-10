@@ -542,7 +542,7 @@ export default function Islemler({ onHazir, onKayitDegisti } = {}) {
                     <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-0.5 justify-end">
                         <button onClick={() => setKopya({ tur: r._tur, iv: { kategori: r.kategori, k: r.k, hesap: r.hesap, aciklama: r.aciklama } })}
-                          className="p-1.5 rounded hover:bg-amber-50 text-slate-300 hover:text-amber-400 transition-colors" title="Kopyala">
+                          className="hidden sm:flex p-1.5 rounded hover:bg-amber-50 text-slate-300 hover:text-amber-400 transition-colors" title="Kopyala">
                           <Copy size={12} />
                         </button>
                         <button onClick={() => setDuzenle(r)}

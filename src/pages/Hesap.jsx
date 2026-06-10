@@ -565,12 +565,12 @@ export default function Hesap({ onHazir, refreshKey } = {}) {
             <tr className="bg-slate-50 border-b border-slate-100">
               <th className="text-left px-3 py-2.5 font-semibold text-slate-500 sticky left-0 bg-slate-50">Dönem</th>
               <th className="text-right px-3 py-2.5 font-semibold text-blue-700 bg-blue-50">Hesap (B)</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-slate-700 bg-slate-100">Hesap (N)</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-slate-700 bg-slate-100 hidden md:table-cell">Hesap (N)</th>
               <th className="text-right px-3 py-2.5 font-semibold text-green-600">Gelir B</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-green-400">Gelir N</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-green-400 hidden md:table-cell">Gelir N</th>
               <th className="text-right px-3 py-2.5 font-semibold text-red-500">Gider B</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-red-300">Gider N</th>
-              <th className="text-right px-3 py-2.5 font-semibold text-slate-400">Transfer (net)</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-red-300 hidden md:table-cell">Gider N</th>
+              <th className="text-right px-3 py-2.5 font-semibold text-slate-400 hidden md:table-cell">Transfer (net)</th>
               <th className="text-center px-3 py-2.5 font-semibold text-slate-400">Durum</th>
             </tr>
           </thead>
@@ -585,14 +585,14 @@ export default function Hesap({ onHazir, refreshKey } = {}) {
                 <td className={`px-3 py-2 text-right bg-blue-50 ${r.bakiyeK >= 0 ? 'text-blue-700' : 'text-red-600'} ${r.donem === mevcutDonem ? 'font-extrabold' : 'font-bold'}`}>
                   {formatPara(r.bakiyeK)}
                 </td>
-                <td className={`px-3 py-2 text-right bg-slate-50 ${r.bakiyeN >= 0 ? 'text-slate-700' : 'text-red-600'} ${r.donem === mevcutDonem ? 'font-extrabold' : 'font-bold'}`}>
+                <td className={`px-3 py-2 text-right bg-slate-50 hidden md:table-cell ${r.bakiyeN >= 0 ? 'text-slate-700' : 'text-red-600'} ${r.donem === mevcutDonem ? 'font-extrabold' : 'font-bold'}`}>
                   {formatPara(r.bakiyeN)}
                 </td>
                 <td className={`px-3 py-2 text-right text-green-600 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{gizle(r.gelirK)}</td>
-                <td className={`px-3 py-2 text-right text-green-400 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.gelirN !== 0 ? formatPara(r.gelirN) : '—'}</td>
+                <td className={`px-3 py-2 text-right text-green-400 hidden md:table-cell ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.gelirN !== 0 ? formatPara(r.gelirN) : '—'}</td>
                 <td className={`px-3 py-2 text-right text-red-500 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.giderK !== 0 ? formatPara(r.giderK) : '—'}</td>
-                <td className={`px-3 py-2 text-right text-red-300 ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.giderN !== 0 ? formatPara(r.giderN) : '—'}</td>
-                <td className={`px-3 py-2 text-right ${r.transferNet > 0 ? 'text-blue-400' : r.transferNet < 0 ? 'text-slate-500' : 'text-slate-400'} ${r.donem === mevcutDonem ? 'font-bold' : ''}`}
+                <td className={`px-3 py-2 text-right text-red-300 hidden md:table-cell ${r.donem === mevcutDonem ? 'font-bold' : ''}`}>{r.giderN !== 0 ? formatPara(r.giderN) : '—'}</td>
+                <td className={`px-3 py-2 text-right hidden md:table-cell ${r.transferNet > 0 ? 'text-blue-400' : r.transferNet < 0 ? 'text-slate-500' : 'text-slate-400'} ${r.donem === mevcutDonem ? 'font-bold' : ''}`}
                     title={r.transferNet > 0 ? 'Net: Nakit → Banka' : r.transferNet < 0 ? 'Net: Banka → Nakit' : ''}>
                   {r.transferNet !== 0 ? formatPara(r.transferNet) : '—'}
                 </td>

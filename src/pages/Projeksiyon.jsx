@@ -159,7 +159,7 @@ function KalemTablosu({ liste, tip, seciliId, setSeciliId, onDuzenle, onSil, onT
   const para = (v) => maskeli ? '••••' : formatPara(v)
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto">
       {/* Başlık */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
         <h3 className={`text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 ${isGelir ? 'text-green-600' : 'text-red-500'}`}>

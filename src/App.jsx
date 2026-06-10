@@ -149,7 +149,7 @@ function AppShell() {
     <HashRouter>
       <div className="flex min-h-dvh dark:bg-slate-900">
         <SideNav />
-        <main className="flex-1 md:ml-56 pb-20 md:pb-0">
+        <main className="flex-1 min-w-0 overflow-x-hidden md:ml-56 pb-20 md:pb-0">
           <Routes>
             <Route path="/" element={<DashboardProj />} />
             <Route path="/hesap" element={<HesapIslemler />} />
