@@ -505,7 +505,7 @@ export default function Projeksiyon() {
                     </p>
                   </div>
                 </div>
-                <div className={`mt-3 text-xs font-medium rounded-lg px-3 py-1.5 inline-block ${
+                <div className={`mt-3 text-xs font-medium rounded-lg px-3 py-1.5 block ${
                   pozitif ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                 }`}>
                   {pozitif
