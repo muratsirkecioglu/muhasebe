@@ -497,7 +497,7 @@ export default function Projeksiyon() {
                     </span>
                   </div>
                 </div>
-                <div className="text-right mt-2">
+                <div className="text-left mt-2">
                   <p className="text-[10px] text-slate-400 mb-0.5">{pozitif ? 'Aylık Fazla' : 'Aylık Açık'}</p>
                   <p className={`text-2xl font-bold leading-tight ${pozitif ? 'text-green-600' : 'text-red-500'}`}>
                     {pozitif ? '+' : '-'}{sem}{para(Math.abs(net))}
