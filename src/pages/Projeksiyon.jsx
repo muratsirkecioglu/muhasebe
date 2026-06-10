@@ -18,6 +18,18 @@ function aylikEsde(k) {
   }
 }
 
+function sonrakiAy(donem) {
+  const yil = Math.floor(donem / 100)
+  const ay = donem % 100
+  return ay === 12 ? (yil + 1) * 100 + 1 : yil * 100 + (ay + 1)
+}
+
+function donemLabel(donem) {
+  const yil = Math.floor(donem / 100)
+  const ay = donem % 100
+  return new Date(yil, ay - 1, 1).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+}
+
 // ─── Form Modalı ─────────────────────────────────────────────────────────────
 function KalemFormu({ kalem, onKapat, onKayit }) {
   const [form, setForm] = useState({
@@ -278,6 +290,7 @@ export default function Projeksiyon() {
 
   const [kalemler, setKalemler] = useState([])
   const [kkOzet, setKkOzet] = useState({ ekstre: {}, taksit: {} })
+  const [gelecekTaksitler, setGelecekTaksitler] = useState({})
   const [formKalem, setFormKalem] = useState(null)   // null = kapalı
   const [seciliId, setSeciliId] = useState(null)
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -289,7 +302,10 @@ export default function Projeksiyon() {
     setYukleniyor(true)
     const buAyVal = (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
 
-    const [sabitRes, hesaplarRes, harcamalarRes, kalemlerRes] = await Promise.all([
+    const ay1 = sonrakiAy(buAyVal)
+    const ay2 = sonrakiAy(ay1)
+
+    const [sabitRes, hesaplarRes, harcamalarRes, kalemlerRes, gelecekRes] = await Promise.all([
       supabase.from('sabit_kalemler').select('*').order('sira', { nullsFirst: false }).order('created_at'),
       // Sadece KK hesapları — doviz_cinsi için
       supabase.from('borc_hesaplar').select('id, doviz_cinsi').eq('aktif', true).eq('tip', 'kk'),
@@ -300,6 +316,11 @@ export default function Projeksiyon() {
         .select('hesap_id, tutar')
         .eq('donem', buAyVal)
         .eq('odendi', false)
+        .eq('tur', 'taksit'),
+      // Gelecek 2 ayın taksit kalemleri
+      supabase.from('borc_kalemler')
+        .select('hesap_id, tutar, donem')
+        .in('donem', [ay1, ay2])
         .eq('tur', 'taksit'),
     ])
 
@@ -324,6 +345,15 @@ export default function Projeksiyon() {
     }
 
     setKkOzet({ ekstre, taksit })
+
+    // Gelecek 2 ay taksitleri → { donem: { doviz: tutar } }
+    const gelecekMap = {}
+    for (const k of gelecekRes.data || []) {
+      if (!gelecekMap[k.donem]) gelecekMap[k.donem] = {}
+      const doviz = hesapMap[k.hesap_id]?.doviz_cinsi || 'TL'
+      gelecekMap[k.donem][doviz] = (gelecekMap[k.donem][doviz] || 0) + (k.tutar || 0)
+    }
+    setGelecekTaksitler(gelecekMap)
 
     setYukleniyor(false)
   }, [])
@@ -381,6 +411,27 @@ export default function Projeksiyon() {
     if (seciliId === id) setSeciliId(null)
     yukle()
   }
+
+  // ── Gelecek 2 ay projeksiyon ─────────────────────────────────────────────
+  const gelecekAylar = useMemo(() => {
+    const a1 = sonrakiAy(buAy)
+    const a2 = sonrakiAy(a1)
+    return [a1, a2].map(donem => {
+      const dovizMap = {}
+      for (const k of kalemler.filter(k => k.aktif)) {
+        const d = k.doviz_cinsi || 'TL'
+        if (!dovizMap[d]) dovizMap[d] = { gelir: 0, gider: 0, taksit: 0 }
+        const aylik = aylikEsde(k)
+        if (k.tip === 'gelir') dovizMap[d].gelir += aylik
+        else dovizMap[d].gider += aylik
+      }
+      for (const [doviz, tutar] of Object.entries(gelecekTaksitler[donem] || {})) {
+        if (!dovizMap[doviz]) dovizMap[doviz] = { gelir: 0, gider: 0, taksit: 0 }
+        dovizMap[doviz].taksit += tutar
+      }
+      return { donem, dovizMap }
+    })
+  }, [buAy, kalemler, gelecekTaksitler])
 
   // ── Projeksiyon özeti (dövize göre) ──────────────────────────────────────
   const projeksiyonMap = useMemo(() => {
@@ -524,6 +575,61 @@ export default function Projeksiyon() {
           </div>
         )
       })()}
+
+      {/* Gelecek 2 Ay Projeksiyonu */}
+      {gelecekAylar.some(a => Object.keys(a.dovizMap).length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={16} className="text-blue-400" />
+            <h2 className="text-sm font-bold text-slate-600 dark:text-slate-300">Gelecek 2 Ay Tahmini</h2>
+          </div>
+          {gelecekAylar.map(({ donem, dovizMap }) =>
+            Object.keys(dovizMap).length === 0 ? null : (
+              <div key={donem} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                    {donemLabel(donem)}
+                  </span>
+                </div>
+                {(['TL', 'USD', 'EUR', 'GBP']).filter(d => dovizMap[d]).map(doviz => {
+                  const { gelir, gider, taksit } = dovizMap[doviz]
+                  const net = gelir - gider - taksit
+                  const sem = SEMBOL[doviz] || doviz
+                  const pozitif = net >= 0
+                  return (
+                    <div key={doviz} className="px-4 py-3 space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                          <TrendingUp size={11} className="text-green-500" /> Sabit Gelirler
+                        </span>
+                        <span className="font-semibold text-green-600">+{sem}{para(gelir)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                          <TrendingDown size={11} className="text-red-400" /> Sabit Giderler
+                        </span>
+                        <span className="font-semibold text-red-500">-{sem}{para(gider)}</span>
+                      </div>
+                      {taksit > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                            <CreditCard size={11} className="text-purple-400" /> KK Taksitler
+                          </span>
+                          <span className="font-semibold text-purple-600">-{sem}{para(taksit)}</span>
+                        </div>
+                      )}
+                      <div className={`flex justify-between text-sm font-bold pt-1 border-t border-slate-100 dark:border-slate-700 ${pozitif ? 'text-green-600' : 'text-red-500'}`}>
+                        <span>Tahmini Net</span>
+                        <span>{pozitif ? '+' : '-'}{sem}{para(Math.abs(net))}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          )}
+        </div>
+      )}
 
       {/* Tablolar */}
       <KalemTablosu
