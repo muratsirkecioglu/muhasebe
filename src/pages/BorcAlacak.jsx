@@ -67,7 +67,7 @@ async function knMaxSiralar(donemler, ids) {
 
 // --- Hesap Ekleme Formu ---
 function HesapFormu({ onKapat, onKayit }) {
-  const [form, setForm] = useState({ ad: '', tip: 'kisi', doviz_cinsi: 'TL', ekstre_gun: '', aciklama: '' })
+  const [form, setForm] = useState({ ad: '', tip: 'kisi', doviz_cinsi: 'TL', ekstre_gun: '', kredi_limiti: '', aciklama: '' })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   const kaydet = async (e) => {
@@ -95,6 +95,7 @@ function HesapFormu({ onKapat, onKayit }) {
         tip: form.tip,
         doviz_cinsi: form.doviz_cinsi,
         ekstre_gun: form.tip === 'kk' && form.ekstre_gun ? parseInt(form.ekstre_gun) : null,
+        kredi_limiti: form.tip === 'kk' && form.kredi_limiti ? parseFloat(form.kredi_limiti) : null,
         aciklama: form.aciklama || null,
       })
     }
@@ -133,13 +134,22 @@ function HesapFormu({ onKapat, onKayit }) {
             </select>
           </div>
           {form.tip === 'kk' && (
-            <div>
-              <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre Günü (ayın kaçı)</label>
-              <input type="number" min="1" max="31" value={form.ekstre_gun}
-                onChange={e => setForm(f => ({ ...f, ekstre_gun: e.target.value }))}
-                placeholder="ör: 15"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-            </div>
+            <>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre Günü (ayın kaçı)</label>
+                <input type="number" min="1" max="31" value={form.ekstre_gun}
+                  onChange={e => setForm(f => ({ ...f, ekstre_gun: e.target.value }))}
+                  placeholder="ör: 15"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Kredi Limiti (isteğe bağlı)</label>
+                <input type="number" min="0" step="100" value={form.kredi_limiti}
+                  onChange={e => setForm(f => ({ ...f, kredi_limiti: e.target.value }))}
+                  placeholder="ör: 50000"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+            </>
           )}
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama (isteğe bağlı)</label>
@@ -164,6 +174,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
     ad: hesap.ad,
     doviz_cinsi: hesap.doviz_cinsi,
     ekstre_gun: hesap.ekstre_gun || '',
+    kredi_limiti: hesap.kredi_limiti != null ? String(hesap.kredi_limiti) : '',
     aciklama: hesap.aciklama || '',
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
@@ -184,6 +195,7 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
         tip: hesap.tip,
         doviz_cinsi: form.doviz_cinsi,
         ekstre_gun: form.ekstre_gun ? parseInt(form.ekstre_gun) : null,
+        kredi_limiti: form.kredi_limiti ? parseFloat(form.kredi_limiti) : null,
         aciklama: form.aciklama || null,
       }).eq('id', hesap.id)
     }
@@ -219,13 +231,22 @@ function HesapDuzenleFormu({ hesap, onKapat, onKayit }) {
             </select>
           </div>
           {hesap.tip === 'kk' && (
-            <div>
-              <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre Günü (ayın kaçı)</label>
-              <input type="number" min="1" max="31" value={form.ekstre_gun}
-                onChange={e => setForm(f => ({ ...f, ekstre_gun: e.target.value }))}
-                placeholder="ör: 15"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-            </div>
+            <>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Ekstre Günü (ayın kaçı)</label>
+                <input type="number" min="1" max="31" value={form.ekstre_gun}
+                  onChange={e => setForm(f => ({ ...f, ekstre_gun: e.target.value }))}
+                  placeholder="ör: 15"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Kredi Limiti (isteğe bağlı)</label>
+                <input type="number" min="0" step="100" value={form.kredi_limiti}
+                  onChange={e => setForm(f => ({ ...f, kredi_limiti: e.target.value }))}
+                  placeholder="ör: 50000"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+            </>
           )}
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
@@ -1663,22 +1684,48 @@ export default function BorcAlacak() {
             </div>
 
             {seciliHesap.tip === 'kk' ? (
-              /* KK: Güncel borç + Toplam borç */
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white rounded-xl p-3 border border-purple-100">
-                  <p className="text-xs text-slate-400 mb-1">
-                    {seciliDonem && seciliDonem !== buAy ? donemLabel(seciliDonem) : 'Bu Ay'}
-                  </p>
-                  <p className="text-lg font-bold text-purple-700">{sembol}{formatPara(secilenDonemBorc)}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {seciliDonem && seciliDonem !== buAy ? 'Sadece taksitler' : 'Taksit + Bekleyen'}
-                  </p>
+              /* KK: Güncel borç + Toplam borç + Kullanılabilir Limit */
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white rounded-xl p-3 border border-purple-100">
+                    <p className="text-xs text-slate-400 mb-1">
+                      {seciliDonem && seciliDonem !== buAy ? donemLabel(seciliDonem) : 'Bu Ay'}
+                    </p>
+                    <p className="text-lg font-bold text-purple-700">{sembol}{formatPara(secilenDonemBorc)}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {seciliDonem && seciliDonem !== buAy ? 'Sadece taksitler' : 'Taksit + Bekleyen'}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-xl p-3 border border-purple-100">
+                    <p className="text-xs text-slate-400 mb-1">Toplam Borç</p>
+                    <p className="text-lg font-bold text-red-600">{sembol}{formatPara(toplamBorc)}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Tüm ödenmemiş</p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-xl p-3 border border-purple-100">
-                  <p className="text-xs text-slate-400 mb-1">Toplam Borç</p>
-                  <p className="text-lg font-bold text-red-600">{sembol}{formatPara(toplamBorc)}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Tüm ödenmemiş</p>
-                </div>
+                {seciliHesap.kredi_limiti != null && (() => {
+                  const kullanilabilir = seciliHesap.kredi_limiti - toplamBorc
+                  const oran = Math.min(100, Math.round((toplamBorc / seciliHesap.kredi_limiti) * 100))
+                  const pozitif = kullanilabilir >= 0
+                  return (
+                    <div className="bg-white rounded-xl p-3 border border-purple-100">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs text-slate-400">Kullanılabilir Limit</p>
+                        <p className="text-xs text-slate-400">{oran}% kullanıldı</p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className={`text-lg font-bold ${pozitif ? 'text-green-600' : 'text-red-600'}`}>
+                          {sembol}{formatPara(Math.abs(kullanilabilir))}
+                          {!pozitif && <span className="text-xs font-normal ml-1">aşıldı</span>}
+                        </p>
+                        <p className="text-xs text-slate-400">/ {sembol}{formatPara(seciliHesap.kredi_limiti)}</p>
+                      </div>
+                      <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${oran >= 90 ? 'bg-red-500' : oran >= 70 ? 'bg-orange-400' : 'bg-green-500'}`}
+                          style={{ width: `${oran}%` }} />
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             ) : (
               /* Kişi: tek bakiye */
