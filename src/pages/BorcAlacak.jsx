@@ -974,20 +974,29 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
 // --- KK: Ekstre Kes Modal ---
 function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat, onKayit }) {
   const bekleyenPesin = harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
-  const donemOdenmemis = donemHareketler.filter(r => !r.odendi && r.tutar > 0)
+  const donemOdenmemis = donemHareketler.filter(r => !r.odendi && r.tutar > 0 && !r.ekstre_id)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   const toplamTutar = [...bekleyenPesin, ...donemOdenmemis].reduce((s, r) => s + (r.tutar || 0), 0)
   const hicKayitYok = bekleyenPesin.length === 0 && donemOdenmemis.length === 0
 
+  // Ekstre kesmek artık bekleyen bir ara-state oluşturur — gerçek banka gider
+  // kaydı sadece "Öde" denildiğinde (bkz. odeEkstre) işlenir.
   const kesEkstre = async () => {
     if (hicKayitYok) return
     setKaydediliyor(true)
     const bugun = yerelTarih(new Date())
     const donem = seciliDonem || (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
 
-    // 1. Bekleyen peşin harcamaları borc_kalemler'e bireysel kayıt olarak ekle + kapat
-    const pesinKalemler = []
+    const { data: ekstre } = await supabase.from('borc_ekstreler').insert({
+      hesap_id: hesap.id,
+      donem,
+      tutar: toplamTutar,
+      kesildi_tarih: bugun,
+      odendi: false,
+    }).select('id').single()
+
+    // 1. Bekleyen peşin harcamaları borc_kalemler'e bireysel kayıt olarak ekle, ekstreye bağla
     if (bekleyenPesin.length > 0) {
       let sonSira = await borcKalemMaxSira(hesap.id)
       const yeniKalemler = bekleyenPesin.map(h => ({
@@ -998,7 +1007,8 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
         kategori: h.kategori || null,
         aciklama: h.aciklama || 'Ekstre',
         tur: 'ekstre',
-        odendi: true,
+        odendi: false,
+        ekstre_id: ekstre.id,
         grup_id: crypto.randomUUID(),
         sira: ++sonSira,
       }))
@@ -1006,64 +1016,13 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
       await supabase.from('borc_harcamalar')
         .update({ ekstre_kesildi: true })
         .in('id', bekleyenPesin.map(h => h.id))
-      pesinKalemler.push(...yeniKalemler)
     }
 
-    // 2. Dönemin ödenmemiş taksitlerini ödendi olarak işaretle
+    // 2. Dönemin ödenmemiş taksitlerini bu ekstreye bağla (henüz ödenmedi)
     if (donemOdenmemis.length > 0) {
       await supabase.from('borc_kalemler')
-        .update({ odendi: true })
+        .update({ ekstre_id: ekstre.id })
         .in('id', donemOdenmemis.map(r => r.id))
-    }
-
-    // 3. Banka hesabına gider kayıtları ekle
-    //    - Peşin: kategori bazında topla → 1 kayıt / kategori, açıklama "KK Harcama"
-    //    - Taksitli: her biri kendi kategori + açıklamasıyla ayrı kayıt
-    const knIds = await knIdleriGetir()
-    const tumDonemler = [...new Set([donem, ...donemOdenmemis.map(r => r.donem).filter(Boolean)])]
-    const maxSiralar = await knMaxSiralar(tumDonemler, knIds)
-
-    const bankaGiderler = []
-
-    // Peşin → kategori bazında grupla
-    const pesinGrubu = {}
-    pesinKalemler.forEach(k => {
-      const kat = k.kategori || 'Diğer'
-      pesinGrubu[kat] = (pesinGrubu[kat] || 0) + (k.tutar || 0)
-    })
-    Object.entries(pesinGrubu).forEach(([kat, toplam]) => {
-      bankaGiderler.push({
-        hesap_id: knIds.banka,
-        karsi_hesap_id: null,
-        grup_id: null,
-        tarih: bugun,
-        donem,
-        tutar: -toplam,
-        tur: 'gider',
-        kategori: kat,
-        aciklama: 'KK Harcama',
-        sira: ++maxSiralar[donem],
-      })
-    })
-
-    // Taksitli → her biri ayrı kayıt, kendi açıklaması ve kategorisiyle
-    donemOdenmemis.forEach(r => {
-      bankaGiderler.push({
-        hesap_id: knIds.banka,
-        karsi_hesap_id: null,
-        grup_id: null,
-        tarih: r.tarih,
-        donem: r.donem,
-        tutar: -(r.tutar || 0),
-        tur: 'gider',
-        kategori: r.kategori || 'Diğer',
-        aciklama: r.aciklama || hesap.ad,
-        sira: ++maxSiralar[r.donem],
-      })
-    })
-
-    if (bankaGiderler.length > 0) {
-      await supabase.from('hesap_hareketler').insert(bankaGiderler)
     }
 
     onKayit(); onKapat()
@@ -1145,6 +1104,7 @@ export default function BorcAlacak() {
   const [secili, setSecili] = useState(null)
   const [hareketler, setHareketler] = useState([])
   const [harcamalar, setHarcamalar] = useState([])
+  const [bekleyenEkstreler, setBekleyenEkstreler] = useState([]) // kesilmiş ama henüz ödenmemiş ekstreler
   const [aktifBakiyeler, setAktifBakiyeler] = useState({}) // hesap_id → { bakiye, guncel, toplam }
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
   const [duzenleKalem, setDuzenleKalem] = useState(null)
@@ -1237,13 +1197,16 @@ export default function BorcAlacak() {
       })
       setHareketler(satirlar)
       setHarcamalar([])
+      setBekleyenEkstreler([])
     } else {
-      const [{ data: k }, { data: h }] = await Promise.all([
+      const [{ data: k }, { data: h }, { data: e }] = await Promise.all([
         supabase.from('borc_kalemler').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
         supabase.from('borc_harcamalar').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
+        supabase.from('borc_ekstreler').select('*').eq('hesap_id', hesapId).eq('odendi', false).order('donem', { ascending: false }),
       ])
       setHareketler(k || [])
       setHarcamalar(h || [])
+      setBekleyenEkstreler(e || [])
     }
   }, [])
 
@@ -1295,6 +1258,53 @@ export default function BorcAlacak() {
     if (!confirm('Silinsin mi?')) return
     await supabase.from('borc_harcamalar').delete().eq('id', id)
     yukleDetay(secili.id, secili.tip)
+  }
+
+  // Bekleyen ekstreyi öder: kalemleri + ekstreyi odendi yapar ve gerçek banka
+  // gider kaydını burada (kesim anında değil, ödeme anında) oluşturur.
+  const odeEkstre = async (ekstre) => {
+    if (!confirm(`${donemLabel(ekstre.donem)} ekstresi (₺${formatPara(ekstre.tutar)}) ödendi olarak işaretlensin ve bankadan düşülsün mü?`)) return
+    const { data: kalemler } = await supabase.from('borc_kalemler').select('*').eq('ekstre_id', ekstre.id)
+    const bugun = yerelTarih(new Date())
+
+    await supabase.from('borc_kalemler').update({ odendi: true }).eq('ekstre_id', ekstre.id)
+    await supabase.from('borc_ekstreler').update({ odendi: true, odendi_tarih: bugun }).eq('id', ekstre.id)
+
+    const knIds = await knIdleriGetir()
+    const tumDonemler = [...new Set((kalemler || []).map(r => r.donem).filter(Boolean))]
+    const maxSiralar = await knMaxSiralar(tumDonemler, knIds)
+    const bankaGiderler = []
+
+    // Peşin (tur='ekstre') → kategori bazında topla → 1 kayıt / kategori
+    const pesinGrubu = {}
+    ;(kalemler || []).filter(k => k.tur === 'ekstre').forEach(k => {
+      const kat = k.kategori || 'Diğer'
+      pesinGrubu[kat] = (pesinGrubu[kat] || 0) + (k.tutar || 0)
+    })
+    Object.entries(pesinGrubu).forEach(([kat, toplam]) => {
+      bankaGiderler.push({
+        hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
+        tarih: bugun, donem: ekstre.donem, tutar: -toplam,
+        tur: 'gider', kategori: kat, aciklama: 'KK Harcama',
+        sira: ++maxSiralar[ekstre.donem],
+      })
+    })
+
+    // Taksitli → her biri ayrı kayıt, kendi açıklaması ve kategorisiyle
+    ;(kalemler || []).filter(k => k.tur !== 'ekstre').forEach(r => {
+      bankaGiderler.push({
+        hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
+        tarih: r.tarih, donem: r.donem, tutar: -(r.tutar || 0),
+        tur: 'gider', kategori: r.kategori || 'Diğer', aciklama: r.aciklama || secili.ad,
+        sira: ++maxSiralar[r.donem],
+      })
+    })
+
+    if (bankaGiderler.length > 0) {
+      await supabase.from('hesap_hareketler').insert(bankaGiderler)
+    }
+
+    yenile()
   }
 
   // Büyükten küçüğe sıralanır: en yüksek sira değeri (en yeni kayıt) en üstte görünür
@@ -1869,6 +1879,30 @@ export default function BorcAlacak() {
                     )
                   })
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* KK - Bekleyen Ekstreler (kesilmiş, henüz ödenmemiş) */}
+          {seciliHesap.tip === 'kk' && bekleyenEkstreler.length > 0 && (
+            <div className="mb-5">
+              <p className="text-xs font-semibold text-blue-600 mb-2 px-0.5">🧾 Bekleyen Ekstreler</p>
+              <div className="space-y-2">
+                {bekleyenEkstreler.map(e => (
+                  <div key={e.id} className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-semibold text-blue-800">{donemLabel(e.donem)}</p>
+                      <p className="text-xs text-slate-400">Kesildi: {formatTarih(e.kesildi_tarih)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-blue-700">{sembol}{formatPara(e.tutar)}</p>
+                      <button onClick={() => odeEkstre(e)}
+                        className="flex items-center gap-1 text-xs font-semibold text-white bg-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors">
+                        Öde
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
