@@ -13,6 +13,17 @@ const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr
 // Verilen hesap için o anki en yüksek sira değerini getirir (kayıt yoksa -1).
 // Yeni kayıtlar bu değer + 1, +2, … alır; böylece son işlem her zaman o
 // hesabın en yüksek sira'sına sahip olur ve dönemler arası çakışma olmaz.
+// KK harcamalarının hangi ekstre dönemine gireceğini ekstre kesim gününe göre hesaplar.
+// Kesim günü 22 ise: 22'sine kadar (dahil) yapılan harcama o ayın dönemine, 23'ünden
+// sonrası bir sonraki ayın dönemine girer (gerçek ekstre kesim mantığıyla aynı).
+function harcamaDonemi(tarihStr, ekstreGun) {
+  const t = new Date(tarihStr)
+  if (!ekstreGun) return t.getFullYear() * 100 + (t.getMonth() + 1)
+  const ayOfset = t.getDate() > ekstreGun ? 1 : 0
+  const d = new Date(t.getFullYear(), t.getMonth() + ayOfset, 1)
+  return d.getFullYear() * 100 + (d.getMonth() + 1)
+}
+
 async function borcKalemMaxSira(hesapId) {
   const { data } = await supabase.from('borc_kalemler')
     .select('sira').eq('hesap_id', hesapId)
@@ -804,11 +815,13 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     if (form.harcama_tipi !== 'taksitli') return
     const n = parseInt(form.taksit_sayisi) || 2
     const today = new Date(); today.setHours(0, 0, 0, 0)
-    const baslangic = new Date(form.tarih || bugun)
     const ekstreGun = hesap?.ekstre_gun
+    const baslangicDonem = harcamaDonemi(form.tarih || bugun, ekstreGun)
+    const baslangicYil = Math.floor(baslangicDonem / 100)
+    const baslangicAy = baslangicDonem % 100 - 1 // 0-indexed
 
     setOdendi(Array.from({ length: n }, (_, i) => {
-      const taksitAy = new Date(baslangic.getFullYear(), baslangic.getMonth() + i, 1)
+      const taksitAy = new Date(baslangicYil, baslangicAy + i, 1)
       // Ekstre kesilme tarihi: o ayın ekstre_gun'u (yoksa ayın son günü)
       const ekstreTarihi = ekstreGun
         ? new Date(taksitAy.getFullYear(), taksitAy.getMonth(), ekstreGun)
@@ -831,10 +844,15 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     if (form.harcama_tipi === 'taksitli') {
       // Taksitli: doğrudan borc_kalemler'e aylık kayıt oluştur
       const grupId = crypto.randomUUID()
-      const baslangic = new Date(form.tarih)
       const ekstreGun = hesap?.ekstre_gun
+      // İlk taksitin dönemi, harcama tarihinin ekstre kesim gününe göre düştüğü
+      // dönem (kesim günü 22 ise 24 Haziran → Temmuz dönemi); sonraki taksitler
+      // bu dönemden itibaren ardışık aylara dağılır.
+      const baslangicDonem = harcamaDonemi(form.tarih, ekstreGun)
+      const baslangicYil = Math.floor(baslangicDonem / 100)
+      const baslangicAy = baslangicDonem % 100 - 1 // 0-indexed
       const kalemler = taksitler.map((miktar, i) => {
-        const taksitAy = new Date(baslangic.getFullYear(), baslangic.getMonth() + i, ekstreGun || 1)
+        const taksitAy = new Date(baslangicYil, baslangicAy + i, ekstreGun || 1)
         const donem = taksitAy.getFullYear() * 100 + taksitAy.getMonth() + 1
         return {
           hesap_id: hesap.id,
@@ -973,7 +991,11 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
 
 // --- KK: Ekstre Kes Modal ---
 function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat, onKayit }) {
-  const bekleyenPesin = harcamalar.filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
+  // Sadece bu ekstre döneminin kapsadığı (ekstre kesim gününe göre) harcamalar dahil edilir;
+  // kesim gününden sonraki harcamalar otomatik olarak bir sonraki dönemin ekstresine kalır.
+  const bekleyenPesin = harcamalar.filter(h =>
+    !h.ekstre_kesildi && h.harcama_tipi === 'pesin' && harcamaDonemi(h.tarih, hesap.ekstre_gun) === seciliDonem
+  )
   const donemOdenmemis = donemHareketler.filter(r => !r.odendi && r.tutar > 0 && !r.ekstre_id)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
