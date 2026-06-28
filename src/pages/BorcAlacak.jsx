@@ -990,13 +990,17 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
 }
 
 // --- KK: Ekstre Kes Modal ---
-function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat, onKayit }) {
-  // Sadece bu ekstre döneminin kapsadığı (ekstre kesim gününe göre) harcamalar dahil edilir;
-  // kesim gününden sonraki harcamalar otomatik olarak bir sonraki dönemin ekstresine kalır.
-  const bekleyenPesin = harcamalar.filter(h =>
-    !h.ekstre_kesildi && h.harcama_tipi === 'pesin' && harcamaDonemi(h.tarih, hesap.ekstre_gun) === seciliDonem
+function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, kesilmisDonemler, onKapat, onKayit }) {
+  const buDonemKesilmis = kesilmisDonemler?.has(seciliDonem)
+
+  // Bu dönem veya ÖNCESİNE ait (geç yansıyan provizyon kayıtları dahil), henüz
+  // hiçbir ekstreye girmemiş harcamalar dahil edilir. Kesim gününden SONRAKİ
+  // harcamalar (hesaplanan dönemi seciliDonem'den büyük olanlar) bir sonraki
+  // dönemin ekstresine kalır.
+  const bekleyenPesin = buDonemKesilmis ? [] : harcamalar.filter(h =>
+    !h.ekstre_kesildi && h.harcama_tipi === 'pesin' && harcamaDonemi(h.tarih, hesap.ekstre_gun) <= seciliDonem
   )
-  const donemOdenmemis = donemHareketler.filter(r => !r.odendi && r.tutar > 0 && !r.ekstre_id)
+  const donemOdenmemis = buDonemKesilmis ? [] : donemHareketler.filter(r => !r.odendi && r.tutar > 0 && !r.ekstre_id)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   const toplamTutar = [...bekleyenPesin, ...donemOdenmemis].reduce((s, r) => s + (r.tutar || 0), 0)
@@ -1061,7 +1065,11 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          {hicKayitYok ? (
+          {buDonemKesilmis ? (
+            <p className="text-center text-slate-400 text-sm py-6">
+              🔒 Bu dönem zaten kesilmiş. Geç gelen kayıtlar bir sonraki dönemin ekstresine eklenecektir.
+            </p>
+          ) : hicKayitYok ? (
             <p className="text-center text-slate-400 text-sm py-6">Bu dönemde işlenecek kayıt yok.</p>
           ) : (
             <>
@@ -1107,7 +1115,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
 
         <div className="p-5 border-t border-slate-100 flex gap-3">
           <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
-          <button onClick={kesEkstre} disabled={kaydediliyor || hicKayitYok}
+          <button onClick={kesEkstre} disabled={kaydediliyor || hicKayitYok || buDonemKesilmis}
             className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-medium disabled:opacity-60 flex items-center justify-center gap-2">
             {kaydediliyor ? 'Kesiliyor...' : <><Scissors size={14} /> Ekstreyi Kes</>}
           </button>
@@ -1127,6 +1135,7 @@ export default function BorcAlacak() {
   const [hareketler, setHareketler] = useState([])
   const [harcamalar, setHarcamalar] = useState([])
   const [bekleyenEkstreler, setBekleyenEkstreler] = useState([]) // kesilmiş ama henüz ödenmemiş ekstreler
+  const [kesilmisDonemler, setKesilmisDonemler] = useState(new Set()) // odendi durumu önemsiz — bir kez kesilen dönem tekrar kesilemez
   const [aktifBakiyeler, setAktifBakiyeler] = useState({}) // hesap_id → { bakiye, guncel, toplam }
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
   const [duzenleKalem, setDuzenleKalem] = useState(null)
@@ -1220,15 +1229,17 @@ export default function BorcAlacak() {
       setHareketler(satirlar)
       setHarcamalar([])
       setBekleyenEkstreler([])
+      setKesilmisDonemler(new Set())
     } else {
       const [{ data: k }, { data: h }, { data: e }] = await Promise.all([
         supabase.from('borc_kalemler').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
         supabase.from('borc_harcamalar').select('*').eq('hesap_id', hesapId).order('tarih', { ascending: false }),
-        supabase.from('borc_ekstreler').select('*').eq('hesap_id', hesapId).eq('odendi', false).order('donem', { ascending: false }),
+        supabase.from('borc_ekstreler').select('*').eq('hesap_id', hesapId).order('donem', { ascending: false }),
       ])
       setHareketler(k || [])
       setHarcamalar(h || [])
-      setBekleyenEkstreler(e || [])
+      setBekleyenEkstreler((e || []).filter(r => !r.odendi))
+      setKesilmisDonemler(new Set((e || []).map(r => r.donem)))
     }
   }, [])
 
@@ -2117,6 +2128,7 @@ export default function BorcAlacak() {
           harcamalar={harcamalar}
           donemHareketler={seciliDonem ? hareketler.filter(r => r.donem === seciliDonem) : hareketler.filter(r => r.donem === buAy)}
           seciliDonem={seciliDonem || buAy}
+          kesilmisDonemler={kesilmisDonemler}
           onKapat={() => setForm(null)}
           onKayit={yenile} />
       )}
