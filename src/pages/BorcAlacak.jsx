@@ -1036,7 +1036,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, onKapat,
       }))
       await supabase.from('borc_kalemler').insert(yeniKalemler)
       await supabase.from('borc_harcamalar')
-        .update({ ekstre_kesildi: true })
+        .update({ ekstre_kesildi: true, ekstre_id: ekstre.id })
         .in('id', bekleyenPesin.map(h => h.id))
     }
 
@@ -1325,6 +1325,20 @@ export default function BorcAlacak() {
     if (bankaGiderler.length > 0) {
       await supabase.from('hesap_hareketler').insert(bankaGiderler)
     }
+
+    yenile()
+  }
+
+  // Bekleyen (henüz ödenmemiş) bir ekstreyi kesilmeden önceki haline döndürür:
+  // peşin kalemler silinip kaynak harcamalar tekrar bekleyen yapılır, taksitli
+  // kalemler ekstre bağından çözülüp normal bekleyen taksit olarak kalır.
+  const geriAlEkstre = async (ekstre) => {
+    if (!confirm(`${donemLabel(ekstre.donem)} ekstresi geri alınsın mı? Kesilmeden önceki haline döner.`)) return
+
+    await supabase.from('borc_kalemler').delete().eq('ekstre_id', ekstre.id).eq('tur', 'ekstre')
+    await supabase.from('borc_kalemler').update({ ekstre_id: null }).eq('ekstre_id', ekstre.id)
+    await supabase.from('borc_harcamalar').update({ ekstre_kesildi: false, ekstre_id: null }).eq('ekstre_id', ekstre.id)
+    await supabase.from('borc_ekstreler').delete().eq('id', ekstre.id)
 
     yenile()
   }
@@ -1918,6 +1932,10 @@ export default function BorcAlacak() {
                     </div>
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-blue-700">{sembol}{formatPara(e.tutar)}</p>
+                      <button onClick={() => geriAlEkstre(e)} title="Geri Al — kesilmeden önceki haline döndür"
+                        className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-100 hover:text-blue-600 transition-colors">
+                        <X size={14} />
+                      </button>
                       <button onClick={() => odeEkstre(e)}
                         className="flex items-center gap-1 text-xs font-semibold text-white bg-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors">
                         Öde
