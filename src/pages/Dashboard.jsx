@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, yerelTarih } from '../db'
-import { Landmark, Banknote, ArrowLeftRight, Settings, CreditCard, TrendingDown, TrendingUp } from 'lucide-react'
+import { Landmark, Banknote, ArrowLeftRight, Settings, CreditCard, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
 import CoinIcon from '../components/CoinIcon'
 import TarihInput from '../components/TarihInput'
 
@@ -18,17 +18,33 @@ function trSayiParse(s) {
   return Number.isFinite(n) ? n : null
 }
 
-async function kurlariGetir() {
+async function disApidenKurCek() {
+  const res = await fetch('https://finans.truncgil.com/today.json')
+  const data = await res.json()
+  return {
+    USD: trSayiParse(data.USD?.Satış),
+    EUR: trSayiParse(data.EUR?.Satış),
+    GBP: trSayiParse(data.GBP?.Satış),
+    ALT: trSayiParse(data['gram-altin']?.Satış),
+    GMS: trSayiParse(data.gumus?.Satış),
+  }
+}
+
+// Bugünün kuru kur_gecmisi'nde varsa onu kullanır (dış API'ye gitmez).
+// Yoksa veya zorla=true ise dış API'den çekip o günün satırını upsert eder.
+async function kurlariGetir(zorla = false) {
+  const bugun = yerelTarih(new Date())
+  if (!zorla) {
+    const { data } = await supabase.from('kur_gecmisi').select('*').eq('tarih', bugun).maybeSingle()
+    if (data) return { USD: data.usd, EUR: data.eur, GBP: data.gbp, ALT: data.alt, GMS: data.gms }
+  }
   try {
-    const res = await fetch('https://finans.truncgil.com/today.json')
-    const data = await res.json()
-    return {
-      USD: trSayiParse(data.USD?.Satış),
-      EUR: trSayiParse(data.EUR?.Satış),
-      GBP: trSayiParse(data.GBP?.Satış),
-      ALT: trSayiParse(data['gram-altin']?.Satış),
-      GMS: trSayiParse(data.gumus?.Satış),
-    }
+    const kurlar = await disApidenKurCek()
+    await supabase.from('kur_gecmisi').upsert({
+      tarih: bugun, usd: kurlar.USD, eur: kurlar.EUR, gbp: kurlar.GBP, alt: kurlar.ALT, gms: kurlar.GMS,
+      guncellenme: new Date().toISOString(),
+    }, { onConflict: 'tarih' })
+    return kurlar
   } catch {
     return null
   }
@@ -176,6 +192,7 @@ export default function Dashboard() {
   const [birikimHesaplar, setBirikimHesaplar] = useState([]) // [{ id, ad, doviz_cinsi, emoji, renk }] — Birikim (TL) kökü + alt hesaplar (DB-driven)
   const [borcOzet, setBorcOzet] = useState({}) // { [doviz]: { kkBorcu, kisiBorc, kisiAlacak } }
   const [kurlar, setKurlar] = useState(null) // { USD, EUR, GBP, ALT, GMS } — TL satış fiyatı, yüklenemezse null
+  const [kurYukleniyor, setKurYukleniyor] = useState(false)
   const [transfer, setTransfer] = useState(false)
   const [baslangicFormu, setBaslangicFormu] = useState(false)
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -405,7 +422,14 @@ export default function Dashboard() {
   }
 
   useEffect(() => { yukle() }, [])
-  useEffect(() => { kurlariGetir().then(setKurlar) }, [])
+  useEffect(() => { kurlariGetir(false).then(setKurlar) }, [])
+
+  const kurGuncelAl = async () => {
+    setKurYukleniyor(true)
+    const k = await kurlariGetir(true)
+    setKurlar(k)
+    setKurYukleniyor(false)
+  }
 
   if (yukleniyor) return (
     <div className="flex items-center justify-center h-64">
@@ -463,26 +487,34 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-        <div className="mt-2 bg-slate-800 rounded-xl px-4 py-3 flex justify-between items-center">
-          <span className="text-sm text-slate-300">Toplam TL Varlık</span>
-          <span className="text-lg font-bold text-white">₺{formatPara(bakiye.TL)}</span>
-        </div>
-        <div className="mt-2 bg-slate-100 rounded-xl px-4 py-3 flex justify-between items-center">
-          <span className="text-xs text-slate-500">Tahmini Tüm Varlıklar (TL Karşılığı)</span>
-          {kurlar ? (
-            <span className="text-base font-bold text-slate-700">₺{formatPara(tahminiTumVarliklar)}</span>
-          ) : (
-            <span className="text-xs text-slate-400">kur alınamadı</span>
-          )}
+        <div className="mt-2 bg-slate-800 rounded-xl px-4 py-3 divide-y divide-white/10">
+          <div className="flex justify-between items-center pb-2.5">
+            <span className="text-sm text-slate-300">Toplam TL Varlık</span>
+            <span className="text-lg font-bold text-white">₺{formatPara(bakiye.TL)}</span>
+          </div>
+          <div className="flex justify-between items-center pt-2.5">
+            <span className="text-xs text-slate-400">Tahmini Tüm Varlıklar (TL Karşılığı)</span>
+            {kurlar ? (
+              <span className="text-base font-bold text-slate-200">₺{formatPara(tahminiTumVarliklar)}</span>
+            ) : (
+              <span className="text-xs text-slate-500">kur alınamadı</span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Döviz Varlıkları — tamamen DB-driven (hesaplar tablosundaki birikim/yatırım
           alt hesapları + emoji/renk kolonları): yeni hesap eklemek için kod değişikliği gerekmez */}
       <div>
-        <div className="flex items-center gap-2 mb-3">
-          <CoinIcon size={15} className="text-slate-400" />
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Döviz & Fiziki Varlıklar</h2>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <CoinIcon size={15} className="text-slate-400" />
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Döviz & Fiziki Varlıklar</h2>
+          </div>
+          <button onClick={kurGuncelAl} disabled={kurYukleniyor}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-50">
+            <RefreshCw size={12} className={kurYukleniyor ? 'animate-spin' : ''} /> Güncel Kur Al
+          </button>
         </div>
         {(() => {
           const birikimRootHesap = birikimHesaplar.find(h => h.ad === 'Birikim (TL)')
