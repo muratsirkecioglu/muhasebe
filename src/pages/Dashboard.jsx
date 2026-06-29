@@ -413,12 +413,10 @@ export default function Dashboard() {
     </div>
   )
 
-  // tip='yatirim' olan TL hesaplar (Toplam TL Varlık'a dahil edilmiyor, ama
-  // "Tüm Varlıklar" tahminine kur çevrimi gerekmeden eklenir)
-  const tlYatirimToplam = birikimHesaplar
-    .filter(h => h.doviz_cinsi === 'TL' && h.tip === 'yatirim')
-    .reduce((s, h) => s + (birikimOzet[h.ad] || 0), 0)
-
+  // TL cinsi yatırım hesapları (tip='yatirim') elde tutulan varlık değil —
+  // ne Toplam TL Varlık'a ne de Tahmini Tüm Varlıklar'a girer. Döviz/fiziki
+  // yatırım hesapları (USD, ALT vb.) ise bu listede kalır — onlar zaten ayrı
+  // gösteriliyor ve güncel kurla tahmini değere katkıları doğru.
   const dovizHesaplar = birikimHesaplar
     .filter(h => h.ad !== 'Birikim (TL)' && h.doviz_cinsi !== 'TL')
     .filter(h => birikimOzet[h.ad] && birikimOzet[h.ad] !== 0)
@@ -431,7 +429,7 @@ export default function Dashboard() {
       }, 0)
     : 0
 
-  const tahminiTumVarliklar = bakiye.TL + tlYatirimToplam + dovizToplamTL
+  const tahminiTumVarliklar = bakiye.TL + dovizToplamTL
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
