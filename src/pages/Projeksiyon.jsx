@@ -30,6 +30,14 @@ function donemLabel(donem) {
   return new Date(yil, ay - 1, 1).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
 }
 
+function harcamaDonemi(tarihStr, ekstreGun) {
+  const t = new Date(tarihStr)
+  if (!ekstreGun) return t.getFullYear() * 100 + (t.getMonth() + 1)
+  const ayOfset = t.getDate() > ekstreGun ? 1 : 0
+  const d = new Date(t.getFullYear(), t.getMonth() + ayOfset, 1)
+  return d.getFullYear() * 100 + (d.getMonth() + 1)
+}
+
 // ─── Form Modalı ─────────────────────────────────────────────────────────────
 function KalemFormu({ kalem, onKapat, onKayit }) {
   const [form, setForm] = useState({
@@ -289,7 +297,7 @@ export default function Projeksiyon() {
   const para = (v) => maskeli ? '••••' : formatPara(v)
 
   const [kalemler, setKalemler] = useState([])
-  const [kkOzet, setKkOzet] = useState({ ekstre: {}, taksit: {} })
+  const [kkOzet, setKkOzet] = useState({ bekleyen: {}, ekstre: {}, taksit: {} })
   const [gelecekTaksitler, setGelecekTaksitler] = useState({})
   const [formKalem, setFormKalem] = useState(null)   // null = kapalı
   const [seciliId, setSeciliId] = useState(null)
@@ -305,54 +313,85 @@ export default function Projeksiyon() {
     const ay1 = sonrakiAy(buAyVal)
     const ay2 = sonrakiAy(ay1)
 
-    const [sabitRes, hesaplarRes, harcamalarRes, kalemlerRes, gelecekRes] = await Promise.all([
+    const [sabitRes, hesaplarRes, harcamalarRes, kalemlerRes, gelecekRes, bekleyenEkstreRes] = await Promise.all([
       supabase.from('sabit_kalemler').select('*').order('sira', { nullsFirst: false }).order('created_at'),
-      // Sadece KK hesapları — doviz_cinsi için
-      supabase.from('borc_hesaplar').select('id, doviz_cinsi').eq('aktif', true).eq('tip', 'kk'),
-      // Ekstre kesilmemiş tüm KK harcamaları
-      supabase.from('borc_harcamalar').select('hesap_id, tutar').eq('ekstre_kesildi', false),
-      // Bu ayın ödenmemiş taksit kalemleri
+      supabase.from('borc_hesaplar').select('id, doviz_cinsi, ekstre_gun').eq('aktif', true).eq('tip', 'kk'),
+      supabase.from('borc_harcamalar').select('hesap_id, tutar, tarih').eq('ekstre_kesildi', false),
       supabase.from('borc_kalemler')
         .select('hesap_id, tutar')
         .eq('donem', buAyVal)
         .eq('odendi', false)
         .eq('tur', 'taksit'),
-      // Gelecek 2 ayın taksit kalemleri
       supabase.from('borc_kalemler')
         .select('hesap_id, tutar, donem')
         .in('donem', [ay1, ay2])
         .eq('tur', 'taksit'),
+      supabase.from('borc_ekstreler').select('hesap_id, donem, tutar').eq('odendi', false),
     ])
 
     setKalemler(sabitRes.data || [])
 
-    // KK hesap → doviz_cinsi map
+    // KK hesap → { doviz_cinsi, ekstre_gun } map
     const hesapMap = {}
     for (const h of hesaplarRes.data || []) hesapMap[h.id] = h
 
-    // Ekstre kesilmemiş harcamalar (borc_harcamalar)
+    // Bekleyen ekstreler: hesapId → { donem → tutar }
+    const bekleyenMap = {}
+    for (const e of bekleyenEkstreRes.data || []) {
+      if (!bekleyenMap[e.hesap_id]) bekleyenMap[e.hesap_id] = {}
+      bekleyenMap[e.hesap_id][e.donem] = e.tutar
+    }
+
+    // Bu ay bekleyen ekstre toplamları (per doviz)
+    const bekleyen = {}
+    for (const [hesapId, donemMap] of Object.entries(bekleyenMap)) {
+      const tutar = donemMap[buAyVal]
+      if (!tutar) continue
+      const doviz = hesapMap[hesapId]?.doviz_cinsi || 'TL'
+      bekleyen[doviz] = (bekleyen[doviz] || 0) + tutar
+    }
+
+    // Ekstre kesilmemiş harcamalar — sadece bu ay dönemine ait ve bekleyen ekstresi olmayan hesaplar
     const ekstre = {}
     for (const r of harcamalarRes.data || []) {
-      const doviz = hesapMap[r.hesap_id]?.doviz_cinsi || 'TL'
+      const hesap = hesapMap[r.hesap_id]
+      if (!hesap) continue
+      if (bekleyenMap[r.hesap_id]?.[buAyVal]) continue
+      const hDonem = harcamaDonemi(r.tarih, hesap.ekstre_gun)
+      if (hDonem !== buAyVal) continue
+      const doviz = hesap.doviz_cinsi || 'TL'
       ekstre[doviz] = (ekstre[doviz] || 0) + (r.tutar || 0)
     }
 
-    // Bu ayın taksit ödemeleri (borc_kalemler)
+    // Bu ayın taksitleri — bekleyen ekstresi olan hesaplar hariç (ekstre tutarı zaten içeriyor)
     const taksit = {}
     for (const k of kalemlerRes.data || []) {
+      if (bekleyenMap[k.hesap_id]?.[buAyVal]) continue
       const doviz = hesapMap[k.hesap_id]?.doviz_cinsi || 'TL'
       taksit[doviz] = (taksit[doviz] || 0) + (k.tutar || 0)
     }
 
-    setKkOzet({ ekstre, taksit })
+    setKkOzet({ bekleyen, ekstre, taksit })
 
-    // Gelecek 2 ay taksitleri → { donem: { doviz: tutar } }
+    // Gelecek 2 ay: taksitler + ekstre gününden sonraki overflow harcamalar
     const gelecekMap = {}
     for (const k of gelecekRes.data || []) {
       if (!gelecekMap[k.donem]) gelecekMap[k.donem] = {}
       const doviz = hesapMap[k.hesap_id]?.doviz_cinsi || 'TL'
       gelecekMap[k.donem][doviz] = (gelecekMap[k.donem][doviz] || 0) + (k.tutar || 0)
     }
+
+    // Kesim gününden sonraki harcamalar → ait oldukları gelecek döneme ekle
+    for (const r of harcamalarRes.data || []) {
+      const hesap = hesapMap[r.hesap_id]
+      if (!hesap) continue
+      const hDonem = harcamaDonemi(r.tarih, hesap.ekstre_gun)
+      if (hDonem !== ay1 && hDonem !== ay2) continue
+      if (!gelecekMap[hDonem]) gelecekMap[hDonem] = {}
+      const doviz = hesap.doviz_cinsi || 'TL'
+      gelecekMap[hDonem][doviz] = (gelecekMap[hDonem][doviz] || 0) + (r.tutar || 0)
+    }
+
     setGelecekTaksitler(gelecekMap)
 
     setYukleniyor(false)
@@ -444,6 +483,11 @@ export default function Projeksiyon() {
       if (k.tip === 'gelir') map[d].gelir += aylik
       else                   map[d].gider += aylik
     }
+    // Bekleyen ekstreler (kesilmiş ama ödenmemiş)
+    for (const [d, tutar] of Object.entries(kkOzet.bekleyen)) {
+      if (!map[d]) map[d] = { gelir: 0, gider: 0 }
+      map[d].gider += Number(tutar) || 0
+    }
     // KK ekstre kesilmemiş harcamalar → gider
     for (const [d, tutar] of Object.entries(kkOzet.ekstre)) {
       if (!map[d]) map[d] = { gelir: 0, gider: 0 }
@@ -517,8 +561,8 @@ export default function Projeksiyon() {
       )}
 
       {/* Bu Ayın KK Yükümlülükleri */}
-      {(Object.keys(kkOzet.ekstre).length > 0 || Object.keys(kkOzet.taksit).length > 0) && (() => {
-        const dovizler = [...new Set([...Object.keys(kkOzet.ekstre), ...Object.keys(kkOzet.taksit)])]
+      {(Object.keys(kkOzet.bekleyen).length > 0 || Object.keys(kkOzet.ekstre).length > 0 || Object.keys(kkOzet.taksit).length > 0) && (() => {
+        const dovizler = [...new Set([...Object.keys(kkOzet.bekleyen), ...Object.keys(kkOzet.ekstre), ...Object.keys(kkOzet.taksit)])]
         return (
           <div className="bg-white rounded-2xl border border-purple-100 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 bg-purple-50 border-b border-purple-100">
@@ -529,7 +573,21 @@ export default function Projeksiyon() {
               <span className="ml-auto text-[10px] text-purple-400 font-medium capitalize">{buAyLabel} taksitleri</span>
             </div>
 
-            {/* Ekstre satırları */}
+            {/* Bekleyen ekstre satırları (kesilmiş ama ödenmemiş) */}
+            {Object.entries(kkOzet.bekleyen).map(([doviz, tutar]) => (
+              <div key={`b-${doviz}`} className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
+                <span className="flex items-center gap-2 text-sm text-slate-600">
+                  <CreditCard size={13} className="text-amber-400" />
+                  Bekleyen Ekstre
+                  {Object.keys(kkOzet.bekleyen).length > 1 && <span className="text-xs text-slate-400">({doviz})</span>}
+                </span>
+                <span className="text-sm font-bold text-amber-600">
+                  {SEMBOL[doviz] || doviz}{para(tutar)}
+                </span>
+              </div>
+            ))}
+
+            {/* Ekstre kesilmemiş harcama satırları */}
             {Object.entries(kkOzet.ekstre).map(([doviz, tutar]) => (
               <div key={`e-${doviz}`} className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
                 <span className="flex items-center gap-2 text-sm text-slate-600">
@@ -559,7 +617,7 @@ export default function Projeksiyon() {
 
             {/* Toplam (döviz başına) */}
             {dovizler.map(doviz => {
-              const total = (kkOzet.ekstre[doviz] || 0) + (kkOzet.taksit[doviz] || 0)
+              const total = (kkOzet.bekleyen[doviz] || 0) + (kkOzet.ekstre[doviz] || 0) + (kkOzet.taksit[doviz] || 0)
               const sem = SEMBOL[doviz] || doviz
               return (
                 <div key={`tot-${doviz}`} className="flex items-center justify-between px-4 py-3 bg-slate-50">
