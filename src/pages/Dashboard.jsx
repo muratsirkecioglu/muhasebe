@@ -208,7 +208,7 @@ export default function Dashboard() {
         .select('hesap_id, kapani_bakiye, donem')
         .in('hesap_id', [bankaId, nakitId]),
       supabase.from('hesaplar')
-        .select('id, ad, doviz_cinsi, emoji, renk')
+        .select('id, ad, doviz_cinsi, emoji, renk, tip')
         .eq('ust_hesap_id', birikimId)
         .in('tip', ['birikim', 'yatirim'])
         .eq('aktif', true)
@@ -317,9 +317,11 @@ export default function Dashboard() {
       ozet[ad] = (ozet[ad] || 0) + (r.tutar || 0)
     }
 
-    // TL toplam — Birikim (TL) + döviz_cinsi='TL' olan tüm alt hesaplar (yatırımlar dahil)
+    // TL toplam — Birikim (TL) kökü + tip='birikim' olan TL alt hesaplar.
+    // tip='yatirim' olanlar (TL cinsinden olsa bile) elde tutulan varlık değil,
+    // yatırılmış para olduğu için "Toplam TL Varlık"a dahil edilmez.
     const birikimTL = birikimListesi
-      .filter(h => h.doviz_cinsi === 'TL')
+      .filter(h => h.doviz_cinsi === 'TL' && h.tip !== 'yatirim')
       .reduce((s, h) => s + (ozet[h.ad] || 0), 0)
 
     setBakiye({ K: bankaK, N: nakitN, TL: bankaK + nakitN + birikimTL })
