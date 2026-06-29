@@ -9,6 +9,31 @@ import TarihInput from '../components/TarihInput'
 const VARSAYILAN_EMOJI = '💼'
 const VARSAYILAN_RENK = 'bg-slate-50 border-slate-200 text-slate-700'
 
+// Ücretsiz, anahtarsız kur/altın API'si — TL bazlı satış fiyatları döner.
+// Sayılar Türkçe formatta gelir ("6.045,87" gibi); binlik nokta silinip ondalık
+// virgül noktaya çevrilerek parse edilir.
+function trSayiParse(s) {
+  if (!s) return null
+  const n = parseFloat(s.replace(/\./g, '').replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
+async function kurlariGetir() {
+  try {
+    const res = await fetch('https://finans.truncgil.com/today.json')
+    const data = await res.json()
+    return {
+      USD: trSayiParse(data.USD?.Satış),
+      EUR: trSayiParse(data.EUR?.Satış),
+      GBP: trSayiParse(data.GBP?.Satış),
+      ALT: trSayiParse(data['gram-altin']?.Satış),
+      GMS: trSayiParse(data.gumus?.Satış),
+    }
+  } catch {
+    return null
+  }
+}
+
 // Kişi/Banka/Nakit/Birikim hareketlerinde "hesap başına en yüksek sira" deseni
 // (Islemler.jsx / Birikim.jsx / BorcAlacak.jsx ile aynı)
 async function hesapHareketSiraGetir(hesapId) {
@@ -150,6 +175,7 @@ export default function Dashboard() {
   const [birikimOzet, setBirikimOzet] = useState({})
   const [birikimHesaplar, setBirikimHesaplar] = useState([]) // [{ id, ad, doviz_cinsi, emoji, renk }] — Birikim (TL) kökü + alt hesaplar (DB-driven)
   const [borcOzet, setBorcOzet] = useState({}) // { [doviz]: { kkBorcu, kisiBorc, kisiAlacak } }
+  const [kurlar, setKurlar] = useState(null) // { USD, EUR, GBP, ALT, GMS } — TL satış fiyatı, yüklenemezse null
   const [transfer, setTransfer] = useState(false)
   const [baslangicFormu, setBaslangicFormu] = useState(false)
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -379,12 +405,33 @@ export default function Dashboard() {
   }
 
   useEffect(() => { yukle() }, [])
+  useEffect(() => { kurlariGetir().then(setKurlar) }, [])
 
   if (yukleniyor) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
     </div>
   )
+
+  // tip='yatirim' olan TL hesaplar (Toplam TL Varlık'a dahil edilmiyor, ama
+  // "Tüm Varlıklar" tahminine kur çevrimi gerekmeden eklenir)
+  const tlYatirimToplam = birikimHesaplar
+    .filter(h => h.doviz_cinsi === 'TL' && h.tip === 'yatirim')
+    .reduce((s, h) => s + (birikimOzet[h.ad] || 0), 0)
+
+  const dovizHesaplar = birikimHesaplar
+    .filter(h => h.ad !== 'Birikim (TL)' && h.doviz_cinsi !== 'TL')
+    .filter(h => birikimOzet[h.ad] && birikimOzet[h.ad] !== 0)
+
+  // Döviz/fiziki varlıkların güncel kurla tahmini TL karşılığı (kur yoksa o hesap atlanır)
+  const dovizToplamTL = kurlar
+    ? dovizHesaplar.reduce((s, h) => {
+        const kur = kurlar[h.doviz_cinsi]
+        return kur ? s + (birikimOzet[h.ad] || 0) * kur : s
+      }, 0)
+    : 0
+
+  const tahminiTumVarliklar = bakiye.TL + tlYatirimToplam + dovizToplamTL
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
@@ -422,6 +469,14 @@ export default function Dashboard() {
           <span className="text-sm text-slate-300">Toplam TL Varlık</span>
           <span className="text-lg font-bold text-white">₺{formatPara(bakiye.TL)}</span>
         </div>
+        <div className="mt-2 bg-slate-100 rounded-xl px-4 py-3 flex justify-between items-center">
+          <span className="text-xs text-slate-500">Tahmini Tüm Varlıklar (TL Karşılığı)</span>
+          {kurlar ? (
+            <span className="text-base font-bold text-slate-700">₺{formatPara(tahminiTumVarliklar)}</span>
+          ) : (
+            <span className="text-xs text-slate-400">kur alınamadı</span>
+          )}
+        </div>
       </div>
 
       {/* Döviz Varlıkları — tamamen DB-driven (hesaplar tablosundaki birikim/yatırım
@@ -433,9 +488,6 @@ export default function Dashboard() {
         </div>
         {(() => {
           const birikimRootHesap = birikimHesaplar.find(h => h.ad === 'Birikim (TL)')
-          const dovizHesaplar = birikimHesaplar
-            .filter(h => h.ad !== 'Birikim (TL)' && h.doviz_cinsi !== 'TL')
-            .filter(h => birikimOzet[h.ad] && birikimOzet[h.ad] !== 0)
 
           if (dovizHesaplar.length === 0) {
             return (
@@ -452,12 +504,18 @@ export default function Dashboard() {
                   <p className="text-xl font-bold">₺{formatPara(birikimOzet[birikimRootHesap.ad] || 0)}</p>
                 </div>
               )}
-              {dovizHesaplar.map(h => (
-                <div key={h.ad} className={`rounded-2xl p-4 border ${h.renk || VARSAYILAN_RENK}`}>
-                  <p className="text-xs font-semibold opacity-60 mb-1">{h.emoji || VARSAYILAN_EMOJI} {h.ad}</p>
-                  <p className="text-xl font-bold">{formatPara(birikimOzet[h.ad])} {h.doviz_cinsi}</p>
-                </div>
-              ))}
+              {dovizHesaplar.map(h => {
+                const kur = kurlar?.[h.doviz_cinsi]
+                return (
+                  <div key={h.ad} className={`rounded-2xl p-4 border ${h.renk || VARSAYILAN_RENK}`}>
+                    <p className="text-xs font-semibold opacity-60 mb-1">{h.emoji || VARSAYILAN_EMOJI} {h.ad}</p>
+                    <p className="text-xl font-bold">{formatPara(birikimOzet[h.ad])} {h.doviz_cinsi}</p>
+                    {kur && (
+                      <p className="text-[10px] opacity-50 mt-0.5">≈ ₺{formatPara(birikimOzet[h.ad] * kur)}</p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )
         })()}
