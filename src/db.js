@@ -35,9 +35,23 @@ export function efektifDonem(date = new Date()) {
 }
 
 // Bugün ayın son iş günüyse sonraki ayın 1'ini, değilse bugünü (YYYY-MM-DD) döner.
+// NOT: `date` tipi (zaman dilimsiz) sütunlar için kullanın (ör. odendi_tarih).
+// `timestamptz` sütunlara bu string'i YAZARKEN kullanmayın — sunucunun oturum saat
+// dilimine göre yeniden yorumlanır ve gün bir öncekine kayabilir; onun yerine
+// efektifTarihObj() ile dönen Date nesnesini doğrudan gönderin (bkz. o fonksiyonun
+// açıklaması).
 export function efektifTarih(date = new Date()) {
   if (!sonHaftaiciMi(date)) return yerelTarih(date)
   return yerelTarih(new Date(date.getFullYear(), date.getMonth() + 1, 1))
+}
+
+// efektifTarih()'in Date nesnesi hâli. `timestamptz` sütunlara (ör. hesap_hareketler.tarih)
+// yazarken STRING değil bu nesneyi gönderin: supabase-js Date'i toISOString() ile (açık
+// 'Z' / UTC ofsetli) serileştirir, böylece sunucu tarafında tarih-string'in saat dilimine
+// göre yeniden yorumlanması (ve gün kayması) riski ortadan kalkar.
+export function efektifTarihObj(date = new Date()) {
+  if (!sonHaftaiciMi(date)) return date
+  return new Date(date.getFullYear(), date.getMonth() + 1, 1)
 }
 
 // Bir tarih string'inden (YYYY-MM-DD) dönem (YYYYMM) hesaplar

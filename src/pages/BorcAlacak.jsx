@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, efektifDonem, efektifTarih } from '../db'
+import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
 import TarihInput from '../components/TarihInput'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
 
@@ -1298,7 +1298,11 @@ export default function BorcAlacak() {
   const odeEkstre = async (ekstre) => {
     if (!confirm(`${donemLabel(ekstre.donem)} ekstresi (₺${formatPara(ekstre.tutar)}) ödendi olarak işaretlensin ve bankadan düşülsün mü?`)) return
     const { data: kalemler } = await supabase.from('borc_kalemler').select('*').eq('ekstre_id', ekstre.id)
+    // odendi_tarih: `date` sütun → string güvenli. hesap_hareketler.tarih: `timestamptz`
+    // sütun → string gönderilirse sunucu saat dilimine göre yeniden yorumlanıp gün
+    // bir öncekine kayabilir; bunun yerine Date nesnesi (efektifTarihObj) gönderilir.
     const bugun = efektifTarih()
+    const odemeTarihi = efektifTarihObj()
 
     await supabase.from('borc_kalemler').update({ odendi: true }).eq('ekstre_id', ekstre.id)
     await supabase.from('borc_ekstreler').update({ odendi: true, odendi_tarih: bugun }).eq('id', ekstre.id)
@@ -1317,17 +1321,19 @@ export default function BorcAlacak() {
     Object.entries(pesinGrubu).forEach(([kat, toplam]) => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
-        tarih: bugun, donem: ekstre.donem, tutar: -toplam,
+        tarih: odemeTarihi, donem: ekstre.donem, tutar: -toplam,
         tur: 'gider', kategori: kat, aciklama: 'KK Harcama',
         sira: ++maxSiralar[ekstre.donem],
       })
     })
 
-    // Taksitli → her biri ayrı kayıt, kendi açıklaması ve kategorisiyle
+    // Taksitli → her biri ayrı kayıt, kendi açıklaması ve kategorisiyle. Tarih
+    // olarak taksitin kesim günü (r.tarih) değil, gerçek ödeme tarihi kullanılır —
+    // bankadan para bu gün çıkıyor; donem (KK ekstre dönemi) değişmez.
     ;(kalemler || []).filter(k => k.tur !== 'ekstre').forEach(r => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
-        tarih: r.tarih, donem: r.donem, tutar: -(r.tutar || 0),
+        tarih: odemeTarihi, donem: r.donem, tutar: -(r.tutar || 0),
         tur: 'gider', kategori: r.kategori || 'Diğer', aciklama: r.aciklama || secili.ad,
         sira: ++maxSiralar[r.donem],
       })
