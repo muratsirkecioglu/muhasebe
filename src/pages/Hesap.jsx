@@ -270,24 +270,27 @@ function HesapYonetimi({ onKapat }) {
   )
 }
 
-async function aylikVerileriHesapla() {
-  // Tüm kayıtları sayfalı olarak çek (deterministik sıralama için id ikincil anahtar)
-  async function tumunuCek(tablo, kolonlar, filtreFn) {
-    const SAYFA = 1000
-    let tumVeriler = []
-    let sayfa = 0
-    while (true) {
-      let q = supabase.from(tablo).select(kolonlar)
-      if (filtreFn) q = filtreFn(q)
-      const { data, error } = await q.range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
-      if (error || !data || data.length === 0) break
-      tumVeriler = [...tumVeriler, ...data]
-      if (data.length < SAYFA) break
-      sayfa++
-    }
-    return tumVeriler
+// Tüm kayıtları sayfalı olarak çek — Supabase sorguları varsayılan olarak 1000
+// satırla sınırlı; bu limit aşılırsa sonuç sessizce (hatasız) kesilir. Çok
+// satırlı tabloları (hesap_hareketler, donem_kapanislari) çekerken HER ZAMAN
+// bu fonksiyon kullanılmalı (deterministik sıralama için id ikincil anahtar).
+async function tumunuCek(tablo, kolonlar, filtreFn) {
+  const SAYFA = 1000
+  let tumVeriler = []
+  let sayfa = 0
+  while (true) {
+    let q = supabase.from(tablo).select(kolonlar)
+    if (filtreFn) q = filtreFn(q)
+    const { data, error } = await q.range(sayfa * SAYFA, (sayfa + 1) * SAYFA - 1)
+    if (error || !data || data.length === 0) break
+    tumVeriler = [...tumVeriler, ...data]
+    if (data.length < SAYFA) break
+    sayfa++
   }
+  return tumVeriler
+}
 
+async function aylikVerileriHesapla() {
   // Banka / Nakit / Birikim (TL) hesap id'lerini bul
   const { data: hesapList } = await supabase.from('hesaplar').select('id, ad').in('ad', ['Banka', 'Nakit', 'Birikim (TL)'])
   const bankaId = hesapList?.find(h => h.ad === 'Banka')?.id
@@ -462,12 +465,15 @@ export default function Hesap({ onHazir, refreshKey } = {}) {
       .eq('aktif', true)
     const birikimIds = [meta.birikimId, ...(birikimAltlar || []).map(h => h.id)]
 
-    // Bu hesaplar için en son önceki snapshot'ları bul
-    const { data: oncekiSnap } = await supabase
-      .from('donem_kapanislari')
-      .select('donem, hesap_id, kapani_bakiye')
-      .in('hesap_id', birikimIds)
-      .lt('donem', donem)
+    // Bu hesaplar için en son önceki snapshot'ları bul. GERÇEK HATA buradaydı:
+    // sayfalama olmadan çekilen bu sorgu Supabase'in varsayılan 1000 satır
+    // limitine takılıp (12 hesap × ~10 yıllık aylık snapshot ≈ 1300+ satır)
+    // bazı hesapların en güncel kapanışını sessizce atlıyordu — o hesap için
+    // "önceki dönem yok" sanılıp aşağıdaki artış hesaplaması TÜM geçmişi
+    // (2016'dan beri) topluyor, bakiyeyi katlayarak şişiriyordu.
+    const oncekiSnap = await tumunuCek('donem_kapanislari', 'donem, hesap_id, kapani_bakiye', q =>
+      q.in('hesap_id', birikimIds).lt('donem', donem)
+    )
     const latestPerAccount = {}
     for (const k of oncekiSnap || []) {
       if (!latestPerAccount[k.hesap_id] || k.donem > latestPerAccount[k.hesap_id].donem) {
@@ -475,19 +481,13 @@ export default function Hesap({ onHazir, refreshKey } = {}) {
       }
     }
 
-    // Önceki kapanış sonrası bu döneme kadar olan hareketleri çek. Hesaplar farklı
-    // dönemlerde kapanmış olabilir (ör. sonradan eklenen bir alt hesap hiç
-    // kapanmamış olabilir) — bu yüzden alt sınır SQL'de TEK bir ortak değer olarak
-    // değil, her hesabın KENDİ önceki snapshot dönemine göre JS tarafında uygulanır.
-    // NOT: Daha önce burada "hepsi aynı dönemde kapanmamışsa baştan hesapla" mantığı
-    // vardı; bu durumda alt sınır kaldırılıp TÜM geçmiş hareketler çekiliyor ve
-    // mevcut (zaten geçmişi içeren) kapani_bakiye'nin üzerine bir daha ekleniyordu —
-    // bakiyeyi katlayarak şişiren hata buydu.
-    const { data: birikimHareketler } = await supabase
-      .from('hesap_hareketler')
-      .select('hesap_id, tutar, donem')
-      .in('hesap_id', birikimIds)
-      .lte('donem', donem)
+    // Önceki kapanış sonrası bu döneme kadar olan hareketleri çek (sayfalı —
+    // aynı 1000 satır riski burada da var). Hesaplar farklı dönemlerde
+    // kapanmış olabilir — bu yüzden alt sınır TEK bir ortak değer olarak değil,
+    // her hesabın KENDİ önceki snapshot dönemine göre JS tarafında uygulanır.
+    const birikimHareketler = await tumunuCek('hesap_hareketler', 'hesap_id, tutar, donem', q =>
+      q.in('hesap_id', birikimIds).lte('donem', donem)
+    )
 
     // Her hesap için: kendi önceki snapshot döneminden SONRAKİ hareketlerin toplamı
     const artisMap = {}
