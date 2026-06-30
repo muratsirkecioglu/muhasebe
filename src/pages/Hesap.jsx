@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, donemLabel, buDonem } from '../db'
+import { formatPara, donemLabel, efektifDonem } from '../db'
 import { useMask } from '../MaskContext'
 import { Settings, Plus, Pencil, Trash2, X, Lock } from 'lucide-react'
 
@@ -414,7 +414,7 @@ export default function Hesap({ onHazir, refreshKey } = {}) {
   const [yonetimAcik, setYonetimAcik] = useState(false)
   const [acmaOnay, setAcmaOnay] = useState(null)   // unlock onay dialog için donem
   const [kapaniyor, setKapaniyor] = useState(null) // kapat işlemi devam eden donem
-  const mevcutDonem = buDonem()
+  const mevcutDonem = efektifDonem()
 
   const yenile = useCallback(() => {
     setYukleniyor(true)
