@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { buDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
+import { efektifDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
 import { Plus, Trash2, Pencil, Copy, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import { useMask } from '../MaskContext'
@@ -9,7 +9,7 @@ import { useMask } from '../MaskContext'
 function donemListesi() {
   const list = []
   const baslangic = 201605
-  const bugun = buDonem()
+  const bugun = efektifDonem()
   for (let d = bugun; d >= baslangic; ) {
     list.push(d)
     const yil = Math.floor(d / 100)
@@ -290,7 +290,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
 
 export default function Islemler({ onHazir, onKayitDegisti } = {}) {
   const { maskeli } = useMask()
-  const [donem, setDonem] = useState(buDonem())
+  const [donem, setDonem] = useState(efektifDonem())
   const [form, setForm] = useState(null)
   const [duzenle, setDuzenle] = useState(null)
   const [kopya, setKopya] = useState(null)
