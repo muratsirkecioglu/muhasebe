@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER } from '../db'
+import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, efektifDonem, efektifTarih } from '../db'
 import TarihInput from '../components/TarihInput'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
 
@@ -1298,7 +1298,7 @@ export default function BorcAlacak() {
   const odeEkstre = async (ekstre) => {
     if (!confirm(`${donemLabel(ekstre.donem)} ekstresi (₺${formatPara(ekstre.tutar)}) ödendi olarak işaretlensin ve bankadan düşülsün mü?`)) return
     const { data: kalemler } = await supabase.from('borc_kalemler').select('*').eq('ekstre_id', ekstre.id)
-    const bugun = yerelTarih(new Date())
+    const bugun = efektifTarih()
 
     await supabase.from('borc_kalemler').update({ odendi: true }).eq('ekstre_id', ekstre.id)
     await supabase.from('borc_ekstreler').update({ odendi: true, odendi_tarih: bugun }).eq('id', ekstre.id)
@@ -1456,8 +1456,7 @@ export default function BorcAlacak() {
     if (!secili) return
     const hesap = hesaplar.find(h => h.id === secili.id)
     if (hesap?.tip === 'kk') {
-      const n = new Date()
-      setSeciliDonem(n.getFullYear() * 100 + n.getMonth() + 1)
+      setSeciliDonem(efektifDonem())
     } else {
       setSeciliDonem(null)
     }

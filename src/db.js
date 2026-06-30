@@ -13,6 +13,33 @@ export function buDonem() {
   return d.getFullYear() * 100 + (d.getMonth() + 1)
 }
 
+// Verilen tarih, kendi ayının son haftaiçi (Pzt-Cum) günü mü?
+function sonHaftaiciMi(date) {
+  const gun = date.getDay()
+  if (gun === 0 || gun === 6) return false
+  const sonGun = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  for (let g = date.getDate() + 1; g <= sonGun; g++) {
+    const dow = new Date(date.getFullYear(), date.getMonth(), g).getDay()
+    if (dow !== 0 && dow !== 6) return false
+  }
+  return true
+}
+
+// Maaş ayın son iş günü yatıyor ve bu, gelecek ayın ilk günü gibi yorumlanıyor:
+// bugün ayın son haftaiçi günüyse bir sonraki dönemi (YYYYMM) döner.
+export function efektifDonem(date = new Date()) {
+  const donem = date.getFullYear() * 100 + (date.getMonth() + 1)
+  if (!sonHaftaiciMi(date)) return donem
+  const yil = Math.floor(donem / 100), ay = donem % 100
+  return ay === 12 ? (yil + 1) * 100 + 1 : yil * 100 + (ay + 1)
+}
+
+// Bugün ayın son iş günüyse sonraki ayın 1'ini, değilse bugünü (YYYY-MM-DD) döner.
+export function efektifTarih(date = new Date()) {
+  if (!sonHaftaiciMi(date)) return yerelTarih(date)
+  return yerelTarih(new Date(date.getFullYear(), date.getMonth() + 1, 1))
+}
+
 // Bir tarih string'inden (YYYY-MM-DD) dönem (YYYYMM) hesaplar
 export function tarihtenDonem(tarihStr) {
   const d = new Date(tarihStr)
