@@ -475,25 +475,25 @@ export default function Hesap({ onHazir, refreshKey } = {}) {
       }
     }
 
-    // Hepsinin aynı donemde kapanmış olduğu güvenli başlangıç dönemi
-    // (farklı donemler veya eksik snapshot varsa baştan hesapla)
-    const hepsindeBulgular = birikimIds.every(id => latestPerAccount[id])
-    const donems = birikimIds.map(id => latestPerAccount[id]?.donem)
-    const tekDonem = hepsindeBulgular && new Set(donems).size === 1
-    const oncekiDonem = tekDonem ? donems[0] : null
-
-    // Önceki kapanış sonrası bu döneme kadar olan hareketleri çek
-    let txQ = supabase
+    // Önceki kapanış sonrası bu döneme kadar olan hareketleri çek. Hesaplar farklı
+    // dönemlerde kapanmış olabilir (ör. sonradan eklenen bir alt hesap hiç
+    // kapanmamış olabilir) — bu yüzden alt sınır SQL'de TEK bir ortak değer olarak
+    // değil, her hesabın KENDİ önceki snapshot dönemine göre JS tarafında uygulanır.
+    // NOT: Daha önce burada "hepsi aynı dönemde kapanmamışsa baştan hesapla" mantığı
+    // vardı; bu durumda alt sınır kaldırılıp TÜM geçmiş hareketler çekiliyor ve
+    // mevcut (zaten geçmişi içeren) kapani_bakiye'nin üzerine bir daha ekleniyordu —
+    // bakiyeyi katlayarak şişiren hata buydu.
+    const { data: birikimHareketler } = await supabase
       .from('hesap_hareketler')
       .select('hesap_id, tutar, donem')
       .in('hesap_id', birikimIds)
       .lte('donem', donem)
-    if (oncekiDonem) txQ = txQ.gt('donem', oncekiDonem)
-    const { data: birikimHareketler } = await txQ
 
-    // Her hesap için toplam hareket artışı
+    // Her hesap için: kendi önceki snapshot döneminden SONRAKİ hareketlerin toplamı
     const artisMap = {}
     for (const h of birikimHareketler || []) {
+      const kendiOncekiDonem = latestPerAccount[h.hesap_id]?.donem ?? null
+      if (kendiOncekiDonem != null && h.donem <= kendiOncekiDonem) continue
       artisMap[h.hesap_id] = (artisMap[h.hesap_id] || 0) + (h.tutar || 0)
     }
 
