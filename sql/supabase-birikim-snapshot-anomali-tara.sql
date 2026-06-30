@@ -30,6 +30,13 @@ limit 30;
 -- Ayrıca: hangi dönemlerde Birikim alt hesapları arasında "senkron olmayan
 -- kapanış" durumu var (hatanın tetiklendiği koşul) — bir dönemde bazı
 -- hesapların snapshot'ı varken bazılarının yoksa orada risk vardır.
+with birikim_hesaplar as (
+  select id, ad from hesaplar where ad = 'Birikim (TL)'
+  union all
+  select h.id, h.ad from hesaplar h
+  join hesaplar kok on kok.ad = 'Birikim (TL)'
+  where h.ust_hesap_id = kok.id and h.tip in ('birikim', 'yatirim')
+)
 select dk.donem, count(distinct dk.hesap_id) as kapanan_hesap_sayisi,
        (select count(*) from birikim_hesaplar) as toplam_birikim_hesabi
 from donem_kapanislari dk
