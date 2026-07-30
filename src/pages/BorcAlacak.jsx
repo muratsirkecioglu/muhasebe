@@ -359,6 +359,8 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
   const [taksitler, setTaksitler] = useState([])
   const [toplamTutar, setToplamTutar] = useState('')
   const [islemTarihi, setIslemTarihi] = useState('')
+  const [kategori, setKategori] = useState(GIDER_KATEGORILER[0])
+  const [aciklama, setAciklama] = useState('')
   const [yukleniyor, setYukleniyor] = useState(true)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -376,6 +378,8 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
         setToplamTutar(String(Math.round(top * 100) / 100))
         // İlk taksit tarihi = işlem tarihi referansı
         setIslemTarihi(rows[0]?._tarih || yerelTarih(new Date()))
+        setKategori(rows[0]?.kategori || GIDER_KATEGORILER[0])
+        setAciklama((rows[0]?.aciklama || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''))
         setYukleniyor(false)
       })
   }, [grupId])
@@ -429,9 +433,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
           rows.push({
             id: `new_${i}`, _tutar: '0', _tarih: yerelTarih(t),
             odendi: false, tur: 'taksit', hesap_id: hesapId, grup_id: grupId,
-            taksit_no: i + 1, taksit_toplam: yeniSayi,
-            kategori: mevcut[0]?.kategori || null, aciklama: mevcut[0]?.aciklama?.replace(/\(\d+\/\d+\)/, '') || null,
-            donem: null,
+            taksit_no: i + 1, taksit_toplam: yeniSayi, donem: null,
           })
         }
       } else {
@@ -465,10 +467,8 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
         tur: 'taksit',
         taksit_no: i + 1,
         taksit_toplam: taksitler.length,
-        kategori: r.kategori || null,
-        aciklama: r.aciklama
-          ? r.aciklama.replace(/\(\d+\/\d+\)/, `(${i + 1}/${taksitler.length})`)
-          : `Taksit (${i + 1}/${taksitler.length})`,
+        kategori: kategori || null,
+        aciklama: `${aciklama || 'Taksit'} (${i + 1}/${taksitler.length})`,
       }
     })
     let sonSira = await borcKalemMaxSira(hesapId)
@@ -515,6 +515,20 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
                     onChange={e => sayiDegisti(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Kategori</label>
+                <select value={kategori} onChange={e => setKategori(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                  {GIDER_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
+                <input type="text" value={aciklama} onChange={e => setAciklama(e.target.value)}
+                  placeholder="Taksit"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                <p className="text-xs text-slate-400 mt-1">Tüm taksitlere (n/m) eki ile uygulanır</p>
               </div>
             </div>
 
@@ -1265,9 +1279,24 @@ export default function BorcAlacak() {
     }
   }
 
+  // Taksitli bir kalemin grubunun kilit durumu. Bir taksit tek başına anlamlı
+  // değil — grup bütün olarak düzenlenir/silinir:
+  // - ekstresi kesilmiş taksit varsa grup dokunulamaz (ekstre kalemleri ve
+  //   ödeme kayıtları o bağa dayanıyor)
+  // - ödenmiş taksit varsa grup silinemez (para çıkışı gerçekleşti)
+  const taksitGrubu = (r) => {
+    if (r.tur !== 'taksit' || !r.grup_id) return null
+    const uyeler = hareketler.filter(x => x.grup_id === r.grup_id)
+    return {
+      adet: uyeler.length,
+      ekstreli: uyeler.some(x => x.ekstre_id),
+      odenmis: uyeler.some(x => x.odendi),
+    }
+  }
+
   const silHareket = async (id) => {
-    if (!confirm('Silinsin mi?')) return
     if (seciliHesap?.tip === 'kisi') {
+      if (!confirm('Silinsin mi?')) return
       const kayit = hareketler.find(r => r.id === id)
       if (kayit?.grup_id) {
         // Çift kayıtlı işlem: her iki bacağı birden sil (birikim + borç)
@@ -1277,9 +1306,25 @@ export default function BorcAlacak() {
       }
       yukleBakiyeGuncelle(secili.id) // kartı da güncelle
     } else {
-      await supabase.from('borc_kalemler').delete().eq('id', id)
+      const kayit = hareketler.find(r => r.id === id)
+      const grup = kayit ? taksitGrubu(kayit) : null
+      if (grup) {
+        if (grup.ekstreli) return alert('Ekstresi kesilmiş taksit içeren işlem silinemez.')
+        if (grup.odenmis) return alert('Ödenmiş taksit içeren işlem silinemez.')
+        if (!confirm(`Bu taksitli işlemin ${grup.adet} taksitinin tamamı silinsin mi?`)) return
+        await supabase.from('borc_kalemler').delete().eq('grup_id', kayit.grup_id)
+      } else {
+        if (!confirm('Silinsin mi?')) return
+        await supabase.from('borc_kalemler').delete().eq('id', id)
+      }
     }
     yukleDetay(secili.id, secili.tip)
+  }
+
+  const duzenleAc = (r) => {
+    const grup = taksitGrubu(r)
+    if (grup?.ekstreli) return alert('Ekstresi kesilmiş taksit içeren işlem düzenlenemez.')
+    setDuzenleKalem(r)
   }
 
   const toggleOdendi = async (id, mevcutDurum) => {
@@ -2003,6 +2048,7 @@ export default function BorcAlacak() {
                 <tbody>
                   {gosterilecekHareketler.map(r => {
                     const isSecili = r.id === seciliHareketId
+                    const grup = taksitGrubu(r)
                     const aciklama = r.aciklama || (r.tur === 'ekstre' ? 'Ekstre' : r.tur === 'taksit' ? 'Taksit' : r.tur === 'al' ? 'Alındı' : 'Ödendi')
                     return (
                       <tr key={r.id}
@@ -2063,12 +2109,14 @@ export default function BorcAlacak() {
                         {/* Aksiyonlar */}
                         <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
                           <div className="flex gap-0.5 justify-end">
-                            <button onClick={() => setDuzenleKalem(r)}
-                              className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 transition-colors">
+                            <button onClick={() => duzenleAc(r)} disabled={grup?.ekstreli}
+                              title={grup?.ekstreli ? 'Ekstresi kesilmiş — düzenlenemez' : 'Düzenle'}
+                              className="p-1.5 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors">
                               <Pencil size={12} />
                             </button>
-                            <button onClick={() => silHareket(r.id)}
-                              className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                            <button onClick={() => silHareket(r.id)} disabled={grup?.ekstreli || grup?.odenmis}
+                              title={grup ? (grup.ekstreli ? 'Ekstresi kesilmiş — silinemez' : grup.odenmis ? 'Ödenmiş — silinemez' : `${grup.adet} taksitin tamamını sil`) : 'Sil'}
+                              className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors">
                               <Trash2 size={12} />
                             </button>
                           </div>
