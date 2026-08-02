@@ -1,13 +1,13 @@
 export const GIDER_KATEGORILER = [
   'Gıda', 'Kira', 'Akaryakıt', 'Fatura', 'Borç', 'Eşya', 'Sağlık',
-  'Giyim', 'Ulaşım', 'Eğitim', 'Eğlence', 'Hediye', 'Aidat', 'Vergi',
+  'Giyim', 'Ulaşım', 'Eğitim', 'Eğlence', 'Hediye', 'Aidat', 'Vergi', 'HGS',
   'Temizlik M.', 'Burs', 'Birikim', 'Diğer',
 ]
 
 // Bir araca etiketlenebilen gider kategorileri — Araç sayfası yalnızca bunları toplar.
 // Gider formlarında araç seçici sadece bu kategoriler seçiliyken görünür.
-// Vergi: MTV, muayene harcı gibi araca bağlı vergiler.
-export const ARAC_KATEGORILER = ['Akaryakıt', 'Ulaşım', 'Vergi']
+// Vergi: MTV, muayene harcı gibi araca bağlı vergiler. HGS: otoyol/köprü geçişleri.
+export const ARAC_KATEGORILER = ['Akaryakıt', 'Ulaşım', 'Vergi', 'HGS']
 
 // Yakıt tüketimi (km / litre / tam depo) yalnızca bu kategoride sorulur —
 // Ulaşım kategorisi taksi/otobüs gibi dolum içermeyen giderler için.

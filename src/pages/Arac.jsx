@@ -423,6 +423,11 @@ export default function Arac() {
 
   const toplam = aylik.reduce((s, r) => s + r.toplam, 0)
 
+  // Kategori sayısı arttıkça tablo dar ekranda taşıyor — bu araçta hiç kaydı
+  // olmayan kategoriler sütun açmaz.
+  const dolu = ARAC_KATEGORILER.filter(k => aylik.some(r => r[k] > 0))
+  const sutunlar = dolu.length > 0 ? dolu : ARAC_KATEGORILER
+
   // Ortalama, kayıtsız ayları da sayan gerçek sahiplik süresine bölünür:
   // alıştan (yoksa ilk giderden) satışa (satılmamışsa bu döneme) kadar.
   const ilkDonem = seciliArac?.alis_tarihi
@@ -571,8 +576,8 @@ export default function Arac() {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
                         <th className="text-left px-3 py-2.5 font-semibold w-20">Dönem</th>
-                        {ARAC_KATEGORILER.map(k => (
-                          <th key={k} className="text-right px-3 py-2.5 font-semibold">{k}</th>
+                        {sutunlar.map(k => (
+                          <th key={k} className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">{k}</th>
                         ))}
                         <th className="text-right px-3 py-2.5 font-semibold w-24">Toplam</th>
                       </tr>
@@ -583,8 +588,8 @@ export default function Arac() {
                           <td className="px-3 py-2 text-slate-500 border-l-2 border-blue-300 whitespace-nowrap">
                             {donemLabel(r.donem)}
                           </td>
-                          {ARAC_KATEGORILER.map(k => (
-                            <td key={k} className="px-3 py-2 text-right text-slate-500">
+                          {sutunlar.map(k => (
+                            <td key={k} className="px-3 py-2 text-right text-slate-500 whitespace-nowrap">
                               {r[k] > 0 ? `₺${formatPara(r[k])}` : <span className="text-slate-300">—</span>}
                             </td>
                           ))}
@@ -601,8 +606,8 @@ export default function Arac() {
                     <tfoot>
                       <tr className="bg-slate-50 border-t border-slate-200">
                         <td className="px-3 py-2 text-slate-400">{aylik.length} ay</td>
-                        {ARAC_KATEGORILER.map(k => (
-                          <td key={k} className="px-3 py-2 text-right text-slate-500 font-semibold">
+                        {sutunlar.map(k => (
+                          <td key={k} className="px-3 py-2 text-right text-slate-500 font-semibold whitespace-nowrap">
                             ₺{formatPara(aylik.reduce((s, r) => s + r[k], 0))}
                           </td>
                         ))}
