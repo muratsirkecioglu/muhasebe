@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
+import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, ARAC_KATEGORILER, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
 import TarihInput from '../components/TarihInput'
+import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
+
+// KK harcamalarında da araç bağı tutulur; ekstre kesilip ödenince bu bağ
+// borc_kalemler üzerinden hesap_hareketler'e taşınır (bkz. kesEkstre / odeEkstre).
+const aracKategorisiMi = (kategori) => ARAC_KATEGORILER.includes(kategori)
 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr' }
@@ -361,6 +366,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
   const [islemTarihi, setIslemTarihi] = useState('')
   const [kategori, setKategori] = useState(GIDER_KATEGORILER[0])
   const [aciklama, setAciklama] = useState('')
+  const [aracId, setAracId] = useState(null)
   const [yukleniyor, setYukleniyor] = useState(true)
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -380,6 +386,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
         setIslemTarihi(rows[0]?._tarih || yerelTarih(new Date()))
         setKategori(rows[0]?.kategori || GIDER_KATEGORILER[0])
         setAciklama((rows[0]?.aciklama || '').replace(/\s*\(\d+\/\d+\)\s*$/, ''))
+        setAracId(rows[0]?.arac_id ?? null)
         setYukleniyor(false)
       })
   }, [grupId])
@@ -469,6 +476,7 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
         taksit_toplam: taksitler.length,
         kategori: kategori || null,
         aciklama: `${aciklama || 'Taksit'} (${i + 1}/${taksitler.length})`,
+        arac_id: aracKategorisiMi(kategori) ? aracId : null,
       }
     })
     let sonSira = await borcKalemMaxSira(hesapId)
@@ -523,6 +531,10 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
                   {GIDER_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
                 </select>
               </div>
+              {aracKategorisiMi(kategori) && (
+                <AracSecici label="Araç" value={aracId} onChange={setAracId}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+              )}
               <div>
                 <label className="text-xs font-medium text-slate-500 block mb-1">Açıklama</label>
                 <input type="text" value={aciklama} onChange={e => setAciklama(e.target.value)}
@@ -716,6 +728,7 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
     aciklama: harcama.aciklama || '',
     harcama_tipi: harcama.harcama_tipi || 'pesin',
     taksit_sayisi: String(harcama.taksit_sayisi || 2),
+    arac_id: harcama.arac_id ?? null,
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -729,6 +742,7 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
       aciklama: form.aciklama || null,
       harcama_tipi: form.harcama_tipi,
       taksit_sayisi: form.harcama_tipi === 'taksitli' ? parseInt(form.taksit_sayisi) || 2 : 1,
+      arac_id: aracKategorisiMi(form.kategori) ? form.arac_id : null,
     }).eq('id', harcama.id)
     onKayit(); onKapat()
   }
@@ -770,6 +784,10 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
               {GIDER_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
           </div>
+          {aracKategorisiMi(form.kategori) && (
+            <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
           {form.harcama_tipi === 'taksitli' && (
             <div>
               <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
@@ -813,6 +831,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     aciklama: '',
     harcama_tipi: 'taksitli',
     taksit_sayisi: '2',
+    arac_id: null,
   })
   const [taksitler, setTaksitler] = useState(['', ''])
   const [odendi, setOdendi] = useState([])
@@ -880,6 +899,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           taksit_toplam: taksitler.length,
           grup_id: grupId,
           odendi: odendi[i] || false,
+          arac_id: aracKategorisiMi(form.kategori) ? form.arac_id : null,
         }
       })
       let sonSira = await borcKalemMaxSira(hesap.id)
@@ -896,6 +916,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
         harcama_tipi: 'pesin',
         taksit_sayisi: 1,
         ekstre_kesildi: false,
+        arac_id: aracKategorisiMi(form.kategori) ? form.arac_id : null,
       })
     }
 
@@ -934,6 +955,11 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
               {GIDER_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
           </div>
+
+          {aracKategorisiMi(form.kategori) && (
+            <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
 
           {form.harcama_tipi === 'taksitli' && (
             <>
@@ -1046,6 +1072,7 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, kesilmis
         tutar: h.tutar,
         kategori: h.kategori || null,
         aciklama: h.aciklama || 'Ekstre',
+        arac_id: h.arac_id ?? null,
         tur: 'ekstre',
         odendi: false,
         ekstre_id: ekstre.id,
@@ -1158,6 +1185,8 @@ export default function BorcAlacak() {
   const [seciliSatirId, setSeciliSatirId] = useState(null) // peşin harcama sıralama
   const [seciliHareketId, setSeciliHareketId] = useState(null) // hareket sıralama
   const [yukleniyor, setYukleniyor] = useState(true)
+  const araclar = useAraclar()
+  const aracAdi = (id) => id ? aracEtiket(araclar.find(a => a.id === id)) : ''
 
   // Kişi hesapları artık `hesaplar` (tip='borc') tablosunda — borc_hesaplar-şekilli
   // nesnelere eşlenir ki mevcut JSX değişmeden çalışsın (shim deseni; bkz. Birikim.jsx)
@@ -1357,17 +1386,21 @@ export default function BorcAlacak() {
     const maxSiralar = await knMaxSiralar(tumDonemler, knIds)
     const bankaGiderler = []
 
-    // Peşin (tur='ekstre') → kategori bazında topla → 1 kayıt / kategori
+    // Peşin (tur='ekstre') → kategori bazında topla → 1 kayıt / kategori.
+    // Araç bağı olan harcamalar araç başına ayrı toplanır ki Araç sayfası
+    // hangi giderin hangi araca ait olduğunu görebilsin.
     const pesinGrubu = {}
     ;(kalemler || []).filter(k => k.tur === 'ekstre').forEach(k => {
       const kat = k.kategori || 'Diğer'
-      pesinGrubu[kat] = (pesinGrubu[kat] || 0) + (k.tutar || 0)
+      const anahtar = `${kat}|${k.arac_id ?? ''}`
+      if (!pesinGrubu[anahtar]) pesinGrubu[anahtar] = { kategori: kat, arac_id: k.arac_id ?? null, toplam: 0 }
+      pesinGrubu[anahtar].toplam += (k.tutar || 0)
     })
-    Object.entries(pesinGrubu).forEach(([kat, toplam]) => {
+    Object.values(pesinGrubu).forEach(({ kategori, arac_id, toplam }) => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
         tarih: odemeTarihi, donem: ekstre.donem, tutar: -toplam,
-        tur: 'gider', kategori: kat, aciklama: 'KK Harcama',
+        tur: 'gider', kategori, aciklama: 'KK Harcama', arac_id,
         sira: ++maxSiralar[ekstre.donem],
       })
     })
@@ -1380,6 +1413,7 @@ export default function BorcAlacak() {
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
         tarih: odemeTarihi, donem: r.donem, tutar: -(r.tutar || 0),
         tur: 'gider', kategori: r.kategori || 'Diğer', aciklama: r.aciklama || secili.ad,
+        arac_id: r.arac_id ?? null,
         sira: ++maxSiralar[r.donem],
       })
     })
@@ -1461,6 +1495,7 @@ export default function BorcAlacak() {
       taksit_sayisi: 1,
       ekstre_kesildi: false,
       sira: maxSira + 1,
+      arac_id: aracKategorisiMi(yeniSatir.kategori) ? yeniSatir.arac_id ?? null : null,
     })
     setYeniSatir(null)
     yukleDetay(seciliHesap.id, seciliHesap.tip)
@@ -1934,23 +1969,32 @@ export default function BorcAlacak() {
 
                 {/* Yeni satır */}
                 {yeniSatir && (
-                  <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] border-b border-orange-100 bg-amber-50 px-2 py-1 gap-1 items-center">
-                    <select value={yeniSatir.kategori} onChange={e => setYeniSatir(s => ({ ...s, kategori: e.target.value }))}
-                      className="text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none w-full">
-                      {GIDER_KATEGORILER.map(k => <option key={k}>{k}</option>)}
-                    </select>
-                    <input type="text" value={yeniSatir.aciklama} onChange={e => setYeniSatir(s => ({ ...s, aciklama: e.target.value }))}
-                      placeholder="Açıklama"
-                      className="text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none w-full" />
-                    <TarihInput value={yeniSatir.tarih} onChange={v => setYeniSatir(s => ({ ...s, tarih: v }))}
-                      className="w-20 text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none" />
-                    <input type="number" step="0.01" min="0" value={yeniSatir.tutar} onChange={e => setYeniSatir(s => ({ ...s, tutar: e.target.value }))}
-                      placeholder="0"
-                      className="w-16 text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none text-right" />
-                    <div className="w-12 flex gap-1 justify-end">
-                      <button onClick={kaydetPesin} className="p-1 rounded text-green-600 hover:bg-green-100"><Check size={13} /></button>
-                      <button onClick={() => setYeniSatir(null)} className="p-1 rounded text-slate-400 hover:bg-slate-100"><X size={13} /></button>
+                  <div className="border-b border-orange-100 bg-amber-50">
+                    <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] px-2 py-1 gap-1 items-center">
+                      <select value={yeniSatir.kategori} onChange={e => setYeniSatir(s => ({ ...s, kategori: e.target.value }))}
+                        className="text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none w-full">
+                        {GIDER_KATEGORILER.map(k => <option key={k}>{k}</option>)}
+                      </select>
+                      <input type="text" value={yeniSatir.aciklama} onChange={e => setYeniSatir(s => ({ ...s, aciklama: e.target.value }))}
+                        placeholder="Açıklama"
+                        className="text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none w-full" />
+                      <TarihInput value={yeniSatir.tarih} onChange={v => setYeniSatir(s => ({ ...s, tarih: v }))}
+                        className="w-20 text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none" />
+                      <input type="number" step="0.01" min="0" value={yeniSatir.tutar} onChange={e => setYeniSatir(s => ({ ...s, tutar: e.target.value }))}
+                        placeholder="0"
+                        className="w-16 text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none text-right" />
+                      <div className="w-12 flex gap-1 justify-end">
+                        <button onClick={kaydetPesin} className="p-1 rounded text-green-600 hover:bg-green-100"><Check size={13} /></button>
+                        <button onClick={() => setYeniSatir(null)} className="p-1 rounded text-slate-400 hover:bg-slate-100"><X size={13} /></button>
+                      </div>
                     </div>
+                    {/* Araç bağı — dar satıra sığmadığı için ikinci satırda */}
+                    {aracKategorisiMi(yeniSatir.kategori) && (
+                      <div className="px-2 pb-1.5">
+                        <AracSecici value={yeniSatir.arac_id} onChange={v => setYeniSatir(s => ({ ...s, arac_id: v }))}
+                          className="w-full text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none" />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1965,7 +2009,10 @@ export default function BorcAlacak() {
                         onClick={() => setSeciliSatirId(id => id === h.id ? null : h.id)}
                         className={`grid grid-cols-[1fr_1fr_auto_auto_auto] border-b border-orange-50 last:border-0 px-2 py-1.5 gap-1 items-center cursor-pointer transition-colors ${isSecili ? 'bg-amber-100 border-amber-200' : 'hover:bg-orange-50'}`}>
                         <span className={`text-xs truncate ${isSecili ? 'text-amber-800 font-semibold' : 'text-slate-700'}`}>{h.kategori || '—'}</span>
-                        <span className="text-xs text-slate-500 truncate">{h.aciklama || '—'}</span>
+                        <span className="text-xs text-slate-500 truncate">
+                          {h.aciklama || '—'}
+                          {h.arac_id && <span className="ml-1 text-blue-500">{aracAdi(h.arac_id)}</span>}
+                        </span>
                         <span className="w-20 text-xs text-slate-500 text-center">{formatTarih(h.tarih)}</span>
                         <span className={`w-16 text-xs font-semibold text-right ${isSecili ? 'text-amber-700' : 'text-orange-600'}`}>₺{formatPara(h.tutar)}</span>
                         <div className="w-12 flex gap-0.5 justify-end" onClick={e => e.stopPropagation()}>
@@ -2076,6 +2123,9 @@ export default function BorcAlacak() {
                           <span className="ml-1.5 inline-flex gap-1 flex-wrap">
                             {r.kategori && (
                               <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{r.kategori}</span>
+                            )}
+                            {r.arac_id && (
+                              <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">{aracAdi(r.arac_id)}</span>
                             )}
                             {r.taksit_no && (
                               <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full">

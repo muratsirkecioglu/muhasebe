@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { efektifDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI } from '../db'
+import { efektifDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI, ARAC_KATEGORILER } from '../db'
 import { Plus, Trash2, Pencil, Copy, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
+import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
 import { useMask } from '../MaskContext'
+
+// Araç seçici yalnızca araç kategorili giderlerde anlamlı — gelirlerde ve diğer
+// kategorilerde bağ hep null'a düşürülür ki kategori değişince eski araç kalmasın.
+function aracKategorisiMi(tur, kategori) {
+  return tur === 'gider' && ARAC_KATEGORILER.includes(kategori)
+}
 
 // 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
 function donemListesi() {
@@ -56,6 +63,7 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
     k: String(kayit.k || ''),
     hesap: kayit.hesap || 'K',
     aciklama: kayit.aciklama || '',
+    arac_id: kayit.arac_id ?? null,
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -77,6 +85,7 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
       tutar: anaTutar,
       kategori: form.kategori,
       aciklama: form.aciklama || null,
+      arac_id: aracKategorisiMi(tur, form.kategori) ? form.arac_id : null,
     }).eq('id', kayit.id)
 
     // Eşli transfer kaydı varsa (Birikim, Borç Verildi, Borç Tahsil vb.) karşı bacağı da güncelle.
@@ -112,6 +121,10 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
               {kategoriler.map(k => <option key={k}>{k}</option>)}
             </select>
           </div>
+          {aracKategorisiMi(tur, form.kategori) && (
+            <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
             <input type="number" step="0.01" min="0" value={form.k}
@@ -177,6 +190,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
     k: initialValues?.k != null ? String(initialValues.k) : '',
     hesap: initialValues?.hesap ?? 'K',
     aciklama: initialValues?.aciklama ?? '',
+    arac_id: initialValues?.arac_id ?? null,
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -219,6 +233,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
         hesap_id: hesapId, karsi_hesap_id: null, grup_id: null,
         tarih: form.tarih, donem, tutar: isGider ? -tutar : tutar,
         tur, kategori: form.kategori, aciklama: form.aciklama || null, sira,
+        arac_id: aracKategorisiMi(tur, form.kategori) ? form.arac_id : null,
       })
     }
 
@@ -248,6 +263,10 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
               {kategoriler.map(k => <option key={k}>{k}</option>)}
             </select>
           </div>
+          {aracKategorisiMi(tur, form.kategori) && (
+            <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
             <input type="number" step="0.01" min="0" value={form.k}
@@ -298,6 +317,8 @@ export default function Islemler({ onHazir, onKayitDegisti } = {}) {
   const [yukleniyor, setYukleniyor] = useState(true)
   const [seciliSatirId, setSeciliSatirId] = useState(null)
   const [hesapIds, setHesapIds] = useState(null)
+  const araclar = useAraclar()
+  const aracAdi = (id) => aracEtiket(araclar.find(a => a.id === id))
 
   useEffect(() => { hesapIdleriGetir().then(setHesapIds) }, [])
 
@@ -338,6 +359,7 @@ export default function Islemler({ onHazir, onKayitDegisti } = {}) {
         aciklama: r.aciklama,
         sira: r.sira,
         grup_id: r.grup_id,
+        arac_id: r.arac_id,
         _tur: r.tur === 'transfer' ? (r.tutar < 0 ? 'gider' : 'gelir') : r.tur,
       }))
     setIslemler(birlesik)
@@ -513,6 +535,11 @@ export default function Islemler({ onHazir, onKayitDegisti } = {}) {
                       }`}>
                         {r.kategori}
                       </span>
+                      {r.arac_id && (
+                        <span className="ml-1.5 text-[10px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          {aracAdi(r.arac_id)}
+                        </span>
+                      )}
                       {r.aciklama && (
                         <span className="block text-[10px] text-slate-400 truncate max-w-[110px] sm:hidden mt-0.5">
                           {r.aciklama}
@@ -541,7 +568,7 @@ export default function Islemler({ onHazir, onKayitDegisti } = {}) {
                     {/* Aksiyonlar */}
                     <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-0.5 justify-end">
-                        <button onClick={() => setKopya({ tur: r._tur, iv: { kategori: r.kategori, k: r.k, hesap: r.hesap, aciklama: r.aciklama } })}
+                        <button onClick={() => setKopya({ tur: r._tur, iv: { kategori: r.kategori, k: r.k, hesap: r.hesap, aciklama: r.aciklama, arac_id: r.arac_id } })}
                           className="hidden sm:flex p-1.5 rounded hover:bg-amber-50 text-slate-300 hover:text-amber-400 transition-colors" title="Kopyala">
                           <Copy size={12} />
                         </button>

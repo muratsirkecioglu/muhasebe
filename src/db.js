@@ -4,6 +4,10 @@ export const GIDER_KATEGORILER = [
   'Temizlik M.', 'Burs', 'Birikim', 'Diğer',
 ]
 
+// Bir araca etiketlenebilen gider kategorileri — Araç sayfası yalnızca bunları toplar.
+// Gider formlarında araç seçici sadece bu kategoriler seçiliyken görünür.
+export const ARAC_KATEGORILER = ['Akaryakıt', 'Ulaşım']
+
 export const GELIR_TURLERI = [
   'Maaş', 'Prim', 'Yol', 'Masraf', 'Alacak', 'Hediye', 'Kira Geliri', 'Birikim', 'Diğer',
 ]

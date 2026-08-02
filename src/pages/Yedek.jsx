@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 const TABLOLAR = [
   { ad: 'kisiler',              conflict: 'id',          orderCol: 'id' },
   { ad: 'hesaplar',             conflict: 'id',          orderCol: 'id' },
+  { ad: 'araclar',              conflict: 'id',          orderCol: 'id' },
   { ad: 'birikim_alt_hesaplar', conflict: 'id',          orderCol: 'id' },
   { ad: 'borc_hesaplar',        conflict: 'id',          orderCol: 'id' },
   { ad: 'borc_kalemler',        conflict: 'id',          orderCol: 'id' },

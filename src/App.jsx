@@ -1,5 +1,5 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, LogOut, BookOpen, Eye, EyeOff, Moon, Sun, HardDrive } from 'lucide-react'
+import { LayoutDashboard, Users, LogOut, BookOpen, Eye, EyeOff, Moon, Sun, HardDrive, Car } from 'lucide-react'
 import CoinIcon from './components/CoinIcon'
 import { AuthProvider, useAuth } from './AuthContext'
 import { MaskProvider, useMask } from './MaskContext'
@@ -9,6 +9,7 @@ import DashboardProj from './pages/DashboardProj'
 import HesapIslemler from './pages/HesapIslemler'
 import Birikim from './pages/Birikim'
 import BorcAlacak from './pages/BorcAlacak'
+import Arac from './pages/Arac'
 import Yedek from './pages/Yedek'
 import Login from './pages/Login'
 
@@ -17,6 +18,7 @@ const navItems = [
   { to: '/hesap', icon: BookOpen, label: 'Hesap' },
   { to: '/birikim', icon: CoinIcon, label: 'Birikim' },
   { to: '/borc', icon: Users, label: 'Borç/Alacak' },
+  { to: '/arac', icon: Car, label: 'Araç' },
   { to: '/yedek', icon: HardDrive, label: 'Yedek' },
 ]
 
@@ -32,7 +34,7 @@ function BottomNav() {
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex-1 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
+              `flex-1 min-w-0 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
                 isActive
                   ? 'text-blue-600 dark:text-blue-400'
                   : 'text-slate-400 dark:text-slate-500'
@@ -40,26 +42,26 @@ function BottomNav() {
             }
           >
             <Icon size={20} />
-            <span>{label}</span>
+            <span className="w-full text-center truncate px-0.5">{label}</span>
           </NavLink>
         ))}
         <button
           onClick={toggleMask}
-          className={`flex-1 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
+          className={`flex-1 min-w-0 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
             maskeli ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500'
           }`}
         >
           {maskeli ? <EyeOff size={20} /> : <Eye size={20} />}
-          <span>{maskeli ? 'Maskeli' : 'Görünür'}</span>
+          <span className="w-full text-center truncate px-0.5">{maskeli ? 'Maskeli' : 'Görünür'}</span>
         </button>
         <button
           onClick={toggleGece}
-          className={`flex-1 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
+          className={`flex-1 min-w-0 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors ${
             gece ? 'text-yellow-400' : 'text-slate-400 dark:text-slate-500'
           }`}
         >
           {gece ? <Sun size={20} /> : <Moon size={20} />}
-          <span>{gece ? 'Gece' : 'Gündüz'}</span>
+          <span className="w-full text-center truncate px-0.5">{gece ? 'Gece' : 'Gündüz'}</span>
         </button>
       </div>
     </nav>
@@ -155,6 +157,7 @@ function AppShell() {
             <Route path="/hesap" element={<HesapIslemler />} />
             <Route path="/birikim" element={<Birikim />} />
             <Route path="/borc" element={<BorcAlacak />} />
+            <Route path="/arac" element={<Arac />} />
             <Route path="/yedek" element={<Yedek />} />
           </Routes>
         </main>
