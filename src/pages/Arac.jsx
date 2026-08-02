@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, donemLabel, efektifDonem, tarihtenDonem, ARAC_KATEGORILER } from '../db'
+import { formatPara, formatTarih, yerelTarih, donemLabel, efektifDonem, tarihtenDonem, ARAC_KATEGORILER, yakitTuketimi } from '../db'
 import TarihInput from '../components/TarihInput'
 import { aracCacheTemizle } from '../components/AracSecici'
 import { Plus, Pencil, Link2 } from 'lucide-react'
@@ -375,6 +375,7 @@ export default function Arac() {
   const [hareketler, setHareketler] = useState([])
   const [secili, setSecili] = useState(null)   // arac_id
   const [form, setForm] = useState(null)       // null | 'ekle' | 'duzenle' | 'satis' | 'gecmis'
+  const [sekme, setSekme] = useState('gider')  // 'gider' | 'yakit'
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukle = useCallback(async () => {
@@ -383,7 +384,7 @@ export default function Arac() {
       supabase.from('araclar').select('*').order('sira', { nullsFirst: false }).order('id'),
       // Araç giderleri hep hesap_hareketler'de biter: doğrudan girilen giderler
       // ile ekstresi ödenmiş KK harcamaları aynı tabloda buluşur.
-      tumunuCek('hesap_hareketler', 'id, arac_id, donem, tarih, tutar, kategori, aciklama',
+      tumunuCek('hesap_hareketler', 'id, arac_id, donem, tarih, tutar, kategori, aciklama, km, litre, tam_depo',
         q => q.not('arac_id', 'is', null)),
     ])
     const liste = araclarData || []
@@ -433,6 +434,14 @@ export default function Arac() {
   const sonAy = aylik.length > 0 ? aylik[0] : null
 
   const enBuyukAy = aylik.reduce((m, r) => Math.max(m, r.toplam), 0)
+
+  // Yakıt: km/litre girilmiş dolumlar. Tutar da taşındığı için ₺/lt ve ₺/km
+  // buradan çıkar; `araliklar` iki tam depo arasındaki ölçümleri verir.
+  const yakit = yakitTuketimi(aracHareketler)
+  const dolumToplamTutar = yakit.dolumlar.reduce((s, d) => s + Math.abs(d.tutar || 0), 0)
+  const dolumToplamLitre = yakit.dolumlar.reduce((s, d) => s + (d.litre || 0), 0)
+  const litreFiyat = dolumToplamLitre > 0 ? dolumToplamTutar / dolumToplamLitre : 0
+  const kmMaliyet = yakit.toplamMesafe > 0 ? (yakit.ortalama / 100) * litreFiyat : 0
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
@@ -539,8 +548,18 @@ export default function Arac() {
                 </button>
               </div>
 
+              {/* Sekmeler */}
+              <div className="flex gap-2 mb-3">
+                {[['gider', '📊 Aylık Gider'], ['yakit', `⛽ Yakıt${yakit.dolumlar.length > 0 ? ` (${yakit.dolumlar.length})` : ''}`]].map(([val, label]) => (
+                  <button key={val} onClick={() => setSekme(val)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
+                      sekme === val ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-500'
+                    }`}>{label}</button>
+                ))}
+              </div>
+
               {/* Aylık gider tablosu */}
-              {aylik.length === 0 ? (
+              {sekme === 'gider' && (aylik.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-sm space-y-1">
                   <p className="text-2xl">⛽</p>
                   <p>Bu araca bağlı gider yok.</p>
@@ -592,7 +611,107 @@ export default function Arac() {
                     </tfoot>
                   </table>
                 </div>
-              )}
+              ))}
+
+              {/* Yakıt tüketimi */}
+              {sekme === 'yakit' && (yakit.dolumlar.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-sm space-y-1">
+                  <p className="text-2xl">⛽</p>
+                  <p>Bu araca ait dolum kaydı yok.</p>
+                  <p className="text-xs">Akaryakıt gideri eklerken araç seçtikten sonra km ve litre alanları çıkar.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                    <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+                      <p className="text-xs text-slate-400 mb-1">Ortalama Tüketim</p>
+                      <p className="text-base font-bold text-blue-700">
+                        {yakit.ortalama > 0 ? `${yakit.ortalama.toFixed(2)} L` : '—'}
+                        {yakit.ortalama > 0 && <span className="text-xs font-normal text-slate-400"> /100km</span>}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">{yakit.araliklar.length} ölçüm</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                      <p className="text-xs text-slate-400 mb-1">Ölçülen Mesafe</p>
+                      <p className="text-base font-bold text-slate-700">{yakit.toplamMesafe.toLocaleString('tr')} km</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{formatPara(yakit.olculenLitre)} L</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                      <p className="text-xs text-slate-400 mb-1">Ort. Litre Fiyatı</p>
+                      <p className="text-base font-bold text-slate-700">₺{formatPara(litreFiyat)}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{formatPara(dolumToplamLitre)} L toplam</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                      <p className="text-xs text-slate-400 mb-1">Km Maliyeti</p>
+                      <p className="text-base font-bold text-red-600">
+                        {kmMaliyet > 0 ? `₺${formatPara(kmMaliyet)}` : '—'}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">yakıt / km</p>
+                    </div>
+                  </div>
+
+                  {yakit.araliklar.length === 0 && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+                      Tüketim ölçümü için en az iki tam depo dolumu gerekiyor — ilk dolumun litresi
+                      ölçülmüş bir mesafeye karşılık gelmediği için ortalamaya girmez.
+                    </p>
+                  )}
+
+                  <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
+                          <th className="text-left px-3 py-2.5 font-semibold w-[84px]">Tarih</th>
+                          <th className="text-right px-2 py-2.5 font-semibold">Km</th>
+                          <th className="text-right px-2 py-2.5 font-semibold">Litre</th>
+                          <th className="text-right px-2 py-2.5 font-semibold">Tutar</th>
+                          <th className="text-right px-3 py-2.5 font-semibold w-20">Tüketim</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...yakit.dolumlar].reverse().map(d => {
+                          // Bu dolumda kapanan ölçüm aralığı (varsa) satırın tüketimidir
+                          const aralik = yakit.araliklar.find(a => a.son.id === d.id)
+                          const eksik = d.tam_depo === false
+                          return (
+                            <tr key={d.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                              <td className={`pl-3 pr-2 py-2 whitespace-nowrap border-l-2 text-slate-400 ${eksik ? 'border-amber-300' : 'border-blue-300'}`}>
+                                {formatTarih(d.tarih)}
+                              </td>
+                              <td className="px-2 py-2 text-right text-slate-500">{d.km?.toLocaleString('tr')}</td>
+                              <td className="px-2 py-2 text-right text-slate-500">
+                                {formatPara(d.litre)}
+                                {eksik && <span className="ml-1 text-[10px] text-amber-600">eksik</span>}
+                              </td>
+                              <td className="px-2 py-2 text-right text-slate-500">₺{formatPara(Math.abs(d.tutar || 0))}</td>
+                              <td className="px-3 py-2 text-right font-bold text-blue-700 whitespace-nowrap">
+                                {aralik
+                                  ? <>{aralik.tuketim.toFixed(2)}<span className="text-slate-400 font-normal text-[10px] ml-0.5">L</span></>
+                                  : <span className="text-slate-300">—</span>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-50 border-t border-slate-200">
+                          <td className="px-3 py-2 text-slate-400">{yakit.dolumlar.length} dolum</td>
+                          <td className="px-2 py-2 text-right text-slate-500 font-semibold">{yakit.toplamMesafe.toLocaleString('tr')}</td>
+                          <td className="px-2 py-2 text-right text-slate-500 font-semibold">{formatPara(dolumToplamLitre)}</td>
+                          <td className="px-2 py-2 text-right text-slate-500 font-semibold">₺{formatPara(dolumToplamTutar)}</td>
+                          <td className="px-3 py-2 text-right font-bold text-blue-700">
+                            {yakit.ortalama > 0 ? yakit.ortalama.toFixed(2) : '—'}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2 px-0.5">
+                    Tüketim iki tam depo arasında ölçülür; eksik dolumların litresi bir sonraki
+                    tam depoya eklenir. Satırdaki değer o dolumda kapanan aralığın L/100km'sidir.
+                  </p>
+                </>
+              ))}
             </>
           )}
         </>

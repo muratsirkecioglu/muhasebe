@@ -8,6 +8,50 @@ export const GIDER_KATEGORILER = [
 // Gider formlarında araç seçici sadece bu kategoriler seçiliyken görünür.
 export const ARAC_KATEGORILER = ['Akaryakıt', 'Ulaşım']
 
+// Yakıt tüketimi (km / litre / tam depo) yalnızca bu kategoride sorulur —
+// Ulaşım kategorisi taksi/otobüs gibi dolum içermeyen giderler için.
+export const YAKIT_KATEGORI = 'Akaryakıt'
+
+// Bir aracın dolum kayıtlarından ortalama tüketimi (L/100km) çıkarır.
+// Tüketim ancak iki TAM DEPO arasında ölçülebilir; aradaki eksik dolumların
+// litreleri o aralığa eklenir. İlk dolumun litresi ölçülmüş bir mesafeye
+// karşılık gelmediği için hesaba katılmaz (standart depo-depo yöntemi).
+export function yakitTuketimi(dolumlar) {
+  const sirali = (dolumlar || [])
+    .filter(d => d.km != null && d.litre != null && d.litre > 0)
+    .sort((a, b) => a.km - b.km)
+
+  const araliklar = []
+  let sonTam = sirali.findIndex(d => d.tam_depo !== false)
+  let biriken = 0
+
+  if (sonTam >= 0) {
+    for (let i = sonTam + 1; i < sirali.length; i++) {
+      biriken += sirali[i].litre || 0
+      if (sirali[i].tam_depo === false) continue
+      const mesafe = sirali[i].km - sirali[sonTam].km
+      if (mesafe > 0) {
+        araliklar.push({
+          bas: sirali[sonTam], son: sirali[i],
+          mesafe, litre: biriken, tuketim: (biriken / mesafe) * 100,
+        })
+      }
+      sonTam = i
+      biriken = 0
+    }
+  }
+
+  const toplamMesafe = araliklar.reduce((s, a) => s + a.mesafe, 0)
+  const olculenLitre = araliklar.reduce((s, a) => s + a.litre, 0)
+  return {
+    dolumlar: sirali,
+    araliklar,
+    toplamMesafe,
+    olculenLitre,
+    ortalama: toplamMesafe > 0 ? (olculenLitre / toplamMesafe) * 100 : 0,
+  }
+}
+
 export const GELIR_TURLERI = [
   'Maaş', 'Prim', 'Yol', 'Masraf', 'Alacak', 'Hediye', 'Kira Geliri', 'Birikim', 'Diğer',
 ]

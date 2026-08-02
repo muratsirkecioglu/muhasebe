@@ -1,13 +1,25 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, ARAC_KATEGORILER, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
+import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
 import TarihInput from '../components/TarihInput'
 import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
+import YakitAlanlari from '../components/YakitAlanlari'
 import { Plus, Trash2, CreditCard, User, Scissors, Pencil, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
 
-// KK harcamalarında da araç bağı tutulur; ekstre kesilip ödenince bu bağ
-// borc_kalemler üzerinden hesap_hareketler'e taşınır (bkz. kesEkstre / odeEkstre).
+// KK harcamalarında da araç bağı ve dolum bilgisi tutulur; ekstre kesilip
+// ödenince ikisi de borc_kalemler üzerinden hesap_hareketler'e taşınır
+// (bkz. kesEkstre / odeEkstre).
 const aracKategorisiMi = (kategori) => ARAC_KATEGORILER.includes(kategori)
+const yakitMi = (kategori, aracId) => kategori === YAKIT_KATEGORI && !!aracId
+
+// Araç/dolum alanlarının DB'ye yazılacak hali — koşul bozulduğunda ya da km/litre
+// boş bırakıldığında dolum alanları temizlenir (yarım veri tüketim hesabına girmesin).
+function aracAlanlari(form) {
+  const aracId = aracKategorisiMi(form.kategori) ? form.arac_id ?? null : null
+  const dolumVar = yakitMi(form.kategori, aracId) && form.km != null && form.litre != null
+  if (!dolumVar) return { arac_id: aracId, km: null, litre: null, tam_depo: null }
+  return { arac_id: aracId, km: form.km, litre: form.litre, tam_depo: form.tam_depo ?? true }
+}
 
 const DOVIZLER = ['TL', 'USD', 'EUR', 'GBP', 'ALT', 'GMS']
 const SEMBOL = { TL: '₺', USD: '$', EUR: '€', GBP: '£', ALT: 'gr', GMS: 'gr' }
@@ -476,7 +488,9 @@ function TaksitGrubuDuzenleFormu({ grupId, hesapId, doviz_cinsi, onKapat, onKayi
         taksit_toplam: taksitler.length,
         kategori: kategori || null,
         aciklama: `${aciklama || 'Taksit'} (${i + 1}/${taksitler.length})`,
-        arac_id: aracKategorisiMi(kategori) ? aracId : null,
+        // Kalemler silinip yeniden yazıldığı için dolum ölçümü satırın kendi
+        // eski değerinden taşınır; yeni eklenen taksitlerde zaten yoktur.
+        ...aracAlanlari({ kategori, arac_id: aracId, km: r.km, litre: r.litre, tam_depo: r.tam_depo }),
       }
     })
     let sonSira = await borcKalemMaxSira(hesapId)
@@ -729,6 +743,9 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
     harcama_tipi: harcama.harcama_tipi || 'pesin',
     taksit_sayisi: String(harcama.taksit_sayisi || 2),
     arac_id: harcama.arac_id ?? null,
+    km: harcama.km ?? null,
+    litre: harcama.litre ?? null,
+    tam_depo: harcama.tam_depo ?? true,
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -742,7 +759,7 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
       aciklama: form.aciklama || null,
       harcama_tipi: form.harcama_tipi,
       taksit_sayisi: form.harcama_tipi === 'taksitli' ? parseInt(form.taksit_sayisi) || 2 : 1,
-      arac_id: aracKategorisiMi(form.kategori) ? form.arac_id : null,
+      ...aracAlanlari(form),
     }).eq('id', harcama.id)
     onKayit(); onKapat()
   }
@@ -788,6 +805,10 @@ function HarcamaDuzenleFormu({ harcama, onKapat, onKayit }) {
             <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
           )}
+          {yakitMi(form.kategori, form.arac_id) && (
+            <YakitAlanlari km={form.km} litre={form.litre} tamDepo={form.tam_depo}
+              onDegis={(alan, deger) => setForm(f => ({ ...f, [alan]: deger }))} />
+          )}
           {form.harcama_tipi === 'taksitli' && (
             <div>
               <label className="text-xs font-medium text-slate-500 block mb-1">Taksit Sayısı</label>
@@ -832,6 +853,9 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
     harcama_tipi: 'taksitli',
     taksit_sayisi: '2',
     arac_id: null,
+    km: null,
+    litre: null,
+    tam_depo: true,
   })
   const [taksitler, setTaksitler] = useState(['', ''])
   const [odendi, setOdendi] = useState([])
@@ -899,7 +923,10 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           taksit_toplam: taksitler.length,
           grup_id: grupId,
           odendi: odendi[i] || false,
-          arac_id: aracKategorisiMi(form.kategori) ? form.arac_id : null,
+          ...aracAlanlari(form),
+          // Dolum ölçümü yalnızca ilk taksite yazılır — taksit sayısı kadar
+          // tekrarlanırsa tüketim hesabı bozulurdu.
+          ...(i === 0 ? {} : { km: null, litre: null, tam_depo: null }),
         }
       })
       let sonSira = await borcKalemMaxSira(hesap.id)
@@ -916,7 +943,7 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
         harcama_tipi: 'pesin',
         taksit_sayisi: 1,
         ekstre_kesildi: false,
-        arac_id: aracKategorisiMi(form.kategori) ? form.arac_id : null,
+        ...aracAlanlari(form),
       })
     }
 
@@ -959,6 +986,10 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
           {aracKategorisiMi(form.kategori) && (
             <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
+          {yakitMi(form.kategori, form.arac_id) && (
+            <YakitAlanlari km={form.km} litre={form.litre} tamDepo={form.tam_depo}
+              onDegis={(alan, deger) => setForm(f => ({ ...f, [alan]: deger }))} />
           )}
 
           {form.harcama_tipi === 'taksitli' && (
@@ -1073,6 +1104,9 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, kesilmis
         kategori: h.kategori || null,
         aciklama: h.aciklama || 'Ekstre',
         arac_id: h.arac_id ?? null,
+        km: h.km ?? null,
+        litre: h.litre ?? null,
+        tam_depo: h.tam_depo ?? null,
         tur: 'ekstre',
         odendi: false,
         ekstre_id: ekstre.id,
@@ -1387,20 +1421,28 @@ export default function BorcAlacak() {
     const bankaGiderler = []
 
     // Peşin (tur='ekstre') → kategori bazında topla → 1 kayıt / kategori.
-    // Araç bağı olan harcamalar araç başına ayrı toplanır ki Araç sayfası
-    // hangi giderin hangi araca ait olduğunu görebilsin.
+    // Araca bağlı olanlar bu toplamanın DIŞINDA tutulur: her dolumun kendi
+    // km/litre ölçümü var, birleştirilirse tüketim hesabı imkânsız hale gelir.
+    const pesinler = (kalemler || []).filter(k => k.tur === 'ekstre')
     const pesinGrubu = {}
-    ;(kalemler || []).filter(k => k.tur === 'ekstre').forEach(k => {
+    pesinler.filter(k => !k.arac_id).forEach(k => {
       const kat = k.kategori || 'Diğer'
-      const anahtar = `${kat}|${k.arac_id ?? ''}`
-      if (!pesinGrubu[anahtar]) pesinGrubu[anahtar] = { kategori: kat, arac_id: k.arac_id ?? null, toplam: 0 }
-      pesinGrubu[anahtar].toplam += (k.tutar || 0)
+      pesinGrubu[kat] = (pesinGrubu[kat] || 0) + (k.tutar || 0)
     })
-    Object.values(pesinGrubu).forEach(({ kategori, arac_id, toplam }) => {
+    Object.entries(pesinGrubu).forEach(([kategori, toplam]) => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
         tarih: odemeTarihi, donem: ekstre.donem, tutar: -toplam,
-        tur: 'gider', kategori, aciklama: 'KK Harcama', arac_id,
+        tur: 'gider', kategori, aciklama: 'KK Harcama', arac_id: null,
+        sira: ++maxSiralar[ekstre.donem],
+      })
+    })
+    pesinler.filter(k => k.arac_id).forEach(k => {
+      bankaGiderler.push({
+        hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
+        tarih: odemeTarihi, donem: ekstre.donem, tutar: -(k.tutar || 0),
+        tur: 'gider', kategori: k.kategori || 'Diğer', aciklama: k.aciklama || 'KK Harcama',
+        arac_id: k.arac_id, km: k.km ?? null, litre: k.litre ?? null, tam_depo: k.tam_depo ?? null,
         sira: ++maxSiralar[ekstre.donem],
       })
     })
@@ -1413,7 +1455,7 @@ export default function BorcAlacak() {
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
         tarih: odemeTarihi, donem: r.donem, tutar: -(r.tutar || 0),
         tur: 'gider', kategori: r.kategori || 'Diğer', aciklama: r.aciklama || secili.ad,
-        arac_id: r.arac_id ?? null,
+        arac_id: r.arac_id ?? null, km: r.km ?? null, litre: r.litre ?? null, tam_depo: r.tam_depo ?? null,
         sira: ++maxSiralar[r.donem],
       })
     })
@@ -1495,7 +1537,7 @@ export default function BorcAlacak() {
       taksit_sayisi: 1,
       ekstre_kesildi: false,
       sira: maxSira + 1,
-      arac_id: aracKategorisiMi(yeniSatir.kategori) ? yeniSatir.arac_id ?? null : null,
+      ...aracAlanlari(yeniSatir),
     })
     setYeniSatir(null)
     yukleDetay(seciliHesap.id, seciliHesap.tip)
@@ -1951,7 +1993,7 @@ export default function BorcAlacak() {
                     className="w-6 h-6 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center transition-colors">
                     <ChevronDown size={13} />
                   </button>
-                  <button onClick={() => { setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: yerelTarih(new Date()), tutar: '' }); setSeciliSatirId(null) }}
+                  <button onClick={() => { setYeniSatir({ kategori: GIDER_KATEGORILER[0], aciklama: '', tarih: yerelTarih(new Date()), tutar: '', arac_id: null, km: null, litre: null, tam_depo: true }); setSeciliSatirId(null) }}
                     className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center justify-center transition-colors">
                     <Plus size={13} />
                   </button>
@@ -1988,11 +2030,15 @@ export default function BorcAlacak() {
                         <button onClick={() => setYeniSatir(null)} className="p-1 rounded text-slate-400 hover:bg-slate-100"><X size={13} /></button>
                       </div>
                     </div>
-                    {/* Araç bağı — dar satıra sığmadığı için ikinci satırda */}
+                    {/* Araç bağı ve dolum — dar satıra sığmadığı için ikinci satırda */}
                     {aracKategorisiMi(yeniSatir.kategori) && (
-                      <div className="px-2 pb-1.5">
+                      <div className="px-2 pb-1.5 space-y-1">
                         <AracSecici value={yeniSatir.arac_id} onChange={v => setYeniSatir(s => ({ ...s, arac_id: v }))}
                           className="w-full text-xs border border-orange-200 rounded px-1 py-0.5 bg-white focus:outline-none" />
+                        {yakitMi(yeniSatir.kategori, yeniSatir.arac_id) && (
+                          <YakitAlanlari compact km={yeniSatir.km} litre={yeniSatir.litre} tamDepo={yeniSatir.tam_depo}
+                            onDegis={(alan, deger) => setYeniSatir(s => ({ ...s, [alan]: deger }))} />
+                        )}
                       </div>
                     )}
                   </div>

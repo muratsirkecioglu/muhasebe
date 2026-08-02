@@ -1,15 +1,29 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { efektifDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI, ARAC_KATEGORILER } from '../db'
+import { efektifDonem, donemLabel, formatPara, formatTarih, tarihtenDonem, yerelTarih, GIDER_KATEGORILER, GELIR_TURLERI, ARAC_KATEGORILER, YAKIT_KATEGORI } from '../db'
 import { Plus, Trash2, Pencil, Copy, ChevronUp, ChevronDown } from 'lucide-react'
 import TarihInput from '../components/TarihInput'
 import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
+import YakitAlanlari from '../components/YakitAlanlari'
 import { useMask } from '../MaskContext'
 
 // Araç seçici yalnızca araç kategorili giderlerde anlamlı — gelirlerde ve diğer
 // kategorilerde bağ hep null'a düşürülür ki kategori değişince eski araç kalmasın.
 function aracKategorisiMi(tur, kategori) {
   return tur === 'gider' && ARAC_KATEGORILER.includes(kategori)
+}
+
+// Dolum alanları sadece araca bağlanmış akaryakıt giderinde sorulur.
+const yakitMi = (tur, kategori, aracId) => tur === 'gider' && kategori === YAKIT_KATEGORI && !!aracId
+
+// Araç/dolum alanlarının DB'ye yazılacak hali — kategori/araç değişince ya da
+// km-litre boş bırakılınca dolum alanları temizlenir ki artık geçerli olmayan
+// veya yarım veri tüketim hesabına girmesin.
+function aracAlanlari(tur, form) {
+  const aracId = aracKategorisiMi(tur, form.kategori) ? form.arac_id : null
+  const dolumVar = yakitMi(tur, form.kategori, aracId) && form.km != null && form.litre != null
+  if (!dolumVar) return { arac_id: aracId, km: null, litre: null, tam_depo: null }
+  return { arac_id: aracId, km: form.km, litre: form.litre, tam_depo: form.tam_depo ?? true }
 }
 
 // 2016/05'ten bugüne tüm dönemleri üret (en yeniden en eskiye)
@@ -64,6 +78,9 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
     hesap: kayit.hesap || 'K',
     aciklama: kayit.aciklama || '',
     arac_id: kayit.arac_id ?? null,
+    km: kayit.km ?? null,
+    litre: kayit.litre ?? null,
+    tam_depo: kayit.tam_depo ?? true,
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -85,7 +102,7 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
       tutar: anaTutar,
       kategori: form.kategori,
       aciklama: form.aciklama || null,
-      arac_id: aracKategorisiMi(tur, form.kategori) ? form.arac_id : null,
+      ...aracAlanlari(tur, form),
     }).eq('id', kayit.id)
 
     // Eşli transfer kaydı varsa (Birikim, Borç Verildi, Borç Tahsil vb.) karşı bacağı da güncelle.
@@ -124,6 +141,10 @@ function DuzenleFormu({ kayit, hesapIds, onKapat, onKayit }) {
           {aracKategorisiMi(tur, form.kategori) && (
             <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
+          {yakitMi(tur, form.kategori, form.arac_id) && (
+            <YakitAlanlari km={form.km} litre={form.litre} tamDepo={form.tam_depo}
+              onDegis={(alan, deger) => setForm(f => ({ ...f, [alan]: deger }))} />
           )}
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
@@ -191,6 +212,10 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
     hesap: initialValues?.hesap ?? 'K',
     aciklama: initialValues?.aciklama ?? '',
     arac_id: initialValues?.arac_id ?? null,
+    // Kopyalanan kayıttan km/litre taşınmaz — her dolum kendi ölçümüdür
+    km: null,
+    litre: null,
+    tam_depo: true,
   })
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
@@ -233,7 +258,7 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
         hesap_id: hesapId, karsi_hesap_id: null, grup_id: null,
         tarih: form.tarih, donem, tutar: isGider ? -tutar : tutar,
         tur, kategori: form.kategori, aciklama: form.aciklama || null, sira,
-        arac_id: aracKategorisiMi(tur, form.kategori) ? form.arac_id : null,
+        ...aracAlanlari(tur, form),
       })
     }
 
@@ -266,6 +291,10 @@ function IslemFormu({ tur, hesapIds, onKapat, onKayit, initialValues }) {
           {aracKategorisiMi(tur, form.kategori) && (
             <AracSecici label="Araç" value={form.arac_id} onChange={v => setForm(f => ({ ...f, arac_id: v }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+          )}
+          {yakitMi(tur, form.kategori, form.arac_id) && (
+            <YakitAlanlari km={form.km} litre={form.litre} tamDepo={form.tam_depo}
+              onDegis={(alan, deger) => setForm(f => ({ ...f, [alan]: deger }))} />
           )}
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Tutar (₺)</label>
@@ -360,6 +389,9 @@ export default function Islemler({ onHazir, onKayitDegisti } = {}) {
         sira: r.sira,
         grup_id: r.grup_id,
         arac_id: r.arac_id,
+        km: r.km,
+        litre: r.litre,
+        tam_depo: r.tam_depo,
         _tur: r.tur === 'transfer' ? (r.tutar < 0 ? 'gider' : 'gelir') : r.tur,
       }))
     setIslemler(birlesik)
