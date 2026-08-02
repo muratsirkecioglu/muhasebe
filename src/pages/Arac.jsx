@@ -5,7 +5,8 @@ import TarihInput from '../components/TarihInput'
 import { aracCacheTemizle } from '../components/AracSecici'
 import { Plus, Pencil } from 'lucide-react'
 
-const VARSAYILAN_EMOJI = '🚗'
+const SIMGELER = [['🚗', 'Araba'], ['🏍️', 'Motosiklet']]
+const VARSAYILAN_EMOJI = SIMGELER[0][0]
 
 // Supabase varsayılan olarak 1000 satır döner ve fazlasını sessizce keser —
 // araç giderleri yıllar içinde bu sınırı aşabilir, sayfalı çekilir.
@@ -68,19 +69,22 @@ function AracFormu({ arac, onKapat, onKayit }) {
           {!arac && <p className="text-xs text-slate-400 mt-0.5">Yeni araç alındığında eklenir</p>}
         </div>
         <form onSubmit={kaydet} className="p-5 space-y-4">
-          <div className="flex gap-3">
-            <div className="w-20">
-              <label className="text-xs font-medium text-slate-500 block mb-1">Simge</label>
-              <input type="text" maxLength="4" value={form.emoji}
-                onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-center text-lg focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Tür</label>
+            <div className="flex gap-2">
+              {SIMGELER.map(([simge, ad]) => (
+                <button key={simge} type="button" onClick={() => setForm(f => ({ ...f, emoji: simge }))}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                    form.emoji === simge ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200 text-slate-400'
+                  }`}>{simge} {ad}</button>
+              ))}
             </div>
-            <div className="flex-1">
-              <label className="text-xs font-medium text-slate-500 block mb-1">Araç Adı</label>
-              <input type="text" value={form.ad} onChange={e => setForm(f => ({ ...f, ad: e.target.value }))}
-                placeholder="Örn. Megane"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
-            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Araç Adı</label>
+            <input type="text" value={form.ad} onChange={e => setForm(f => ({ ...f, ad: e.target.value }))}
+              placeholder="Örn. Megane"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Plaka</label>
