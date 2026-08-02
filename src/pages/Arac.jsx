@@ -147,8 +147,8 @@ function SatisFormu({ arac, onKapat, onKayit }) {
   )
 }
 
-// Geçmişte araçtan bağımsız girilmiş Akaryakıt / Ulaşım giderlerini toplu olarak
-// bir araca dağıtmak için. Yalnızca hesap_hareketler üzerinde çalışır — Araç
+// Geçmişte araçtan bağımsız girilmiş araç-kategorili (ARAC_KATEGORILER) giderleri
+// toplu olarak bir araca dağıtmak için. Yalnızca hesap_hareketler üzerinde çalışır — Araç
 // sayfası da oradan okuduğu için atama anında rapora yansır. Henüz ekstresi
 // ödenmemiş KK harcamaları burada görünmez; onların bağı Borç/Alacak sayfasındaki
 // harcama formundan kurulur ve ödeme anında buraya taşınır.
@@ -406,8 +406,8 @@ export default function Arac() {
   const seciliArac = araclar.find(a => a.id === secili) || null
   const aracHareketler = hareketler.filter(r => r.arac_id === secili)
 
-  // Dönem → { Akaryakıt, Ulaşım, toplam }. Gider tutarları hesap_hareketler'de
-  // negatif tutulur, burada pozitif harcamaya çevrilir.
+  // Dönem → kategori başına toplam + genel toplam (sütunlar ARAC_KATEGORILER'den
+  // türer). Gider tutarları hesap_hareketler'de negatif tutulur, burada pozitife çevrilir.
   const aylik = (() => {
     const map = {}
     for (const r of aracHareketler) {
