@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 import { formatPara, formatTarih, yerelTarih, donemLabel, efektifDonem, tarihtenDonem, ARAC_KATEGORILER } from '../db'
 import TarihInput from '../components/TarihInput'
 import { aracCacheTemizle } from '../components/AracSecici'
-import { Plus, Pencil } from 'lucide-react'
+import { Plus, Pencil, Link2 } from 'lucide-react'
 
 const SIMGELER = [['🚗', 'Araba'], ['🏍️', 'Motosiklet']]
 const VARSAYILAN_EMOJI = SIMGELER[0][0]
@@ -147,11 +147,234 @@ function SatisFormu({ arac, onKapat, onKayit }) {
   )
 }
 
+// Geçmişte araçtan bağımsız girilmiş Akaryakıt / Ulaşım giderlerini toplu olarak
+// bir araca dağıtmak için. Yalnızca hesap_hareketler üzerinde çalışır — Araç
+// sayfası da oradan okuduğu için atama anında rapora yansır. Henüz ekstresi
+// ödenmemiş KK harcamaları burada görünmez; onların bağı Borç/Alacak sayfasındaki
+// harcama formundan kurulur ve ödeme anında buraya taşınır.
+function GecmisAtamaFormu({ arac, araclar, onKapat, onKayit }) {
+  const GOSTERIM_SINIRI = 500
+
+  const [kayitlar, setKayitlar] = useState([])
+  const [secili, setSecili] = useState(() => new Set())
+  const [kategoriFiltre, setKategoriFiltre] = useState('')
+  const [sadeceBos, setSadeceBos] = useState(true)
+  const [basDonem, setBasDonem] = useState('')
+  const [sonDonem, setSonDonem] = useState('')
+  const [yukleniyor, setYukleniyor] = useState(true)
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  useEffect(() => {
+    tumunuCek('hesap_hareketler', 'id, tarih, donem, tutar, kategori, aciklama, arac_id',
+      q => q.in('kategori', ARAC_KATEGORILER).lt('tutar', 0))
+      .then(rows => {
+        setKayitlar(rows.sort((a, b) => (b.donem || 0) - (a.donem || 0) || new Date(b.tarih) - new Date(a.tarih)))
+        setYukleniyor(false)
+      })
+  }, [])
+
+  const donemler = [...new Set(kayitlar.map(r => r.donem).filter(Boolean))].sort((a, b) => b - a)
+
+  const gosterilecek = kayitlar.filter(r => {
+    if (sadeceBos && r.arac_id) return false
+    if (kategoriFiltre && r.kategori !== kategoriFiltre) return false
+    if (basDonem && (r.donem || 0) < parseInt(basDonem)) return false
+    if (sonDonem && (r.donem || 0) > parseInt(sonDonem)) return false
+    return true
+  })
+
+  const seciliKayitlar = kayitlar.filter(r => secili.has(r.id))
+  const seciliToplam = seciliKayitlar.reduce((s, r) => s + Math.abs(r.tutar || 0), 0)
+  const gorunenSecili = gosterilecek.filter(r => secili.has(r.id)).length
+  const hepsiSecili = gosterilecek.length > 0 && gorunenSecili === gosterilecek.length
+
+  const degistir = (id) => setSecili(s => {
+    const y = new Set(s)
+    if (y.has(id)) y.delete(id); else y.add(id)
+    return y
+  })
+
+  // Seçim yardımcıları filtrelenmiş listenin TAMAMINA uygulanır — ekranda
+  // yalnızca ilk GOSTERIM_SINIRI satır çizilse bile.
+  const tumunuDegistir = () => setSecili(s => {
+    const y = new Set(s)
+    if (hepsiSecili) gosterilecek.forEach(r => y.delete(r.id))
+    else gosterilecek.forEach(r => y.add(r.id))
+    return y
+  })
+
+  // Aracın alış–satış aralığına düşen kayıtları seçer: geçmişi iki araç arasında
+  // bölmenin en hızlı yolu.
+  const sahiplikSec = () => {
+    const bas = arac.alis_tarihi ? tarihtenDonem(arac.alis_tarihi) : null
+    const son = arac.satis_tarihi ? tarihtenDonem(arac.satis_tarihi) : null
+    setSecili(s => {
+      const y = new Set(s)
+      gosterilecek.forEach(r => {
+        if (bas && (r.donem || 0) < bas) return
+        if (son && (r.donem || 0) > son) return
+        y.add(r.id)
+      })
+      return y
+    })
+  }
+
+  const uygula = async (hedefAracId) => {
+    const ids = [...secili]
+    if (ids.length === 0) return
+    const soru = hedefAracId
+      ? `${ids.length} kayıt "${arac.ad}" aracına atansın mı?`
+      : `${ids.length} kaydın araç bağı kaldırılsın mı?`
+    if (!confirm(soru)) return
+    setKaydediliyor(true)
+    // .in() filtresi sorgu string'ine gömülür — uzun URL'den kaçınmak için parçalanır
+    const PARCA = 100
+    for (let i = 0; i < ids.length; i += PARCA) {
+      await supabase.from('hesap_hareketler')
+        .update({ arac_id: hedefAracId }).in('id', ids.slice(i, i + PARCA))
+    }
+    onKayit(); onKapat()
+  }
+
+  const aracAdi = (id) => {
+    const a = araclar.find(x => x.id === id)
+    return a ? `${a.emoji || VARSAYILAN_EMOJI} ${a.ad}` : ''
+  }
+
+  const filtreCls = 'border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-400'
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh]">
+        <div className="p-5 border-b border-slate-100 flex-shrink-0">
+          <h3 className="font-semibold text-slate-800">🔗 Geçmiş Giderleri Ata — {arac.ad}</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Araçtan bağımsız girilmiş {ARAC_KATEGORILER.join(' / ')} giderleri
+          </p>
+        </div>
+
+        {/* Filtreler */}
+        <div className="px-4 py-3 border-b border-slate-100 flex-shrink-0 space-y-2">
+          <div className="flex gap-2">
+            <select value={kategoriFiltre} onChange={e => setKategoriFiltre(e.target.value)} className={`flex-1 ${filtreCls}`}>
+              <option value="">Tüm kategoriler</option>
+              {ARAC_KATEGORILER.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <select value={basDonem} onChange={e => setBasDonem(e.target.value)} className={`flex-1 ${filtreCls}`}>
+              <option value="">En eski</option>
+              {donemler.map(d => <option key={d} value={d}>{donemLabel(d)}</option>)}
+            </select>
+            <select value={sonDonem} onChange={e => setSonDonem(e.target.value)} className={`flex-1 ${filtreCls}`}>
+              <option value="">En yeni</option>
+              {donemler.map(d => <option key={d} value={d}>{donemLabel(d)}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => setSadeceBos(b => !b)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                sadeceBos ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-400'
+              }`}>
+              {sadeceBos ? 'Sadece atanmamışlar' : 'Atanmışlar dahil'}
+            </button>
+            <button type="button" onClick={tumunuDegistir} disabled={gosterilecek.length === 0}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40">
+              {hepsiSecili ? 'Seçimi kaldır' : `Görünen ${gosterilecek.length} kaydı seç`}
+            </button>
+            {(arac.alis_tarihi || arac.satis_tarihi) && (
+              <button type="button" onClick={sahiplikSec}
+                className="px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-200 text-slate-500 hover:bg-slate-50"
+                title="Aracın alış–satış tarihleri arasındaki kayıtları seçer">
+                Sahiplik dönemini seç
+              </button>
+            )}
+            {secili.size > 0 && (
+              <button type="button" onClick={() => setSecili(new Set())}
+                className="px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-200 text-slate-400 hover:bg-slate-50">
+                Temizle
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Liste */}
+        <div className="flex-1 overflow-y-auto">
+          {yukleniyor ? (
+            <div className="flex justify-center py-10">
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : gosterilecek.length === 0 ? (
+            <p className="text-center text-slate-400 text-sm py-10">
+              {sadeceBos ? 'Atanmamış gider kalmadı.' : 'Bu filtrede kayıt yok.'}
+            </p>
+          ) : (
+            <>
+              {gosterilecek.slice(0, GOSTERIM_SINIRI).map(r => {
+                const isSecili = secili.has(r.id)
+                return (
+                  <button key={r.id} type="button" onClick={() => degistir(r.id)}
+                    className={`w-full grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 px-4 py-2 text-left border-b border-slate-50 last:border-0 transition-colors ${
+                      isSecili ? 'bg-blue-50' : 'hover:bg-slate-50'
+                    }`}>
+                    <span className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center ${
+                      isSecili ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-300'
+                    }`}>
+                      {isSecili && <span className="text-[10px] leading-none">✓</span>}
+                    </span>
+                    <span className="text-xs text-slate-400 w-[68px] flex-shrink-0">{formatTarih(r.tarih)}</span>
+                    <span className="min-w-0 flex items-center gap-1.5 overflow-hidden">
+                      <span className="text-xs text-slate-600 flex-shrink-0">{r.kategori}</span>
+                      {r.aciklama && <span className="text-xs text-slate-400 min-w-0 truncate">{r.aciklama}</span>}
+                      {r.arac_id && (
+                        <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+                          {aracAdi(r.arac_id)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs font-semibold text-red-500 whitespace-nowrap">₺{formatPara(Math.abs(r.tutar || 0))}</span>
+                  </button>
+                )
+              })}
+              {gosterilecek.length > GOSTERIM_SINIRI && (
+                <p className="text-center text-xs text-slate-400 py-3 px-4">
+                  {gosterilecek.length} kaydın ilk {GOSTERIM_SINIRI}'ü çiziliyor — seçim butonları
+                  yine de {gosterilecek.length} kaydın tamamına uygulanır.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Alt bar */}
+        <div className="p-4 border-t border-slate-100 flex-shrink-0 space-y-2">
+          <div className="flex justify-between text-xs px-0.5">
+            <span className="text-slate-500">{secili.size} kayıt seçili</span>
+            <span className="font-semibold text-slate-700">₺{formatPara(seciliToplam)}</span>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={onKapat}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">Kapat</button>
+            {!sadeceBos && (
+              <button type="button" onClick={() => uygula(null)} disabled={kaydediliyor || secili.size === 0}
+                className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-500 disabled:opacity-40">
+                Bağı Kaldır
+              </button>
+            )}
+            <button type="button" onClick={() => uygula(arac.id)} disabled={kaydediliyor || secili.size === 0}
+              className="flex-[2] py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-40">
+              {kaydediliyor ? 'Atanıyor...' : `${arac.emoji || VARSAYILAN_EMOJI} ${arac.ad} aracına ata`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Arac() {
   const [araclar, setAraclar] = useState([])
   const [hareketler, setHareketler] = useState([])
   const [secili, setSecili] = useState(null)   // arac_id
-  const [form, setForm] = useState(null)       // null | 'ekle' | 'duzenle' | 'satis'
+  const [form, setForm] = useState(null)       // null | 'ekle' | 'duzenle' | 'satis' | 'gecmis'
   const [yukleniyor, setYukleniyor] = useState(true)
 
   const yukle = useCallback(async () => {
@@ -309,6 +532,11 @@ export default function Arac() {
                     <p className="text-xs text-slate-400 mt-0.5">{aracHareketler.length} kayıt</p>
                   </div>
                 </div>
+
+                <button onClick={() => setForm('gecmis')}
+                  className="mt-2 w-full py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-500 hover:border-blue-300 hover:text-blue-600 transition-colors flex items-center justify-center gap-1.5">
+                  <Link2 size={13} /> Geçmiş Giderleri Ata
+                </button>
               </div>
 
               {/* Aylık gider tablosu */}
@@ -376,6 +604,9 @@ export default function Arac() {
       )}
       {form === 'satis' && seciliArac && (
         <SatisFormu arac={seciliArac} onKapat={() => setForm(null)} onKayit={yukle} />
+      )}
+      {form === 'gecmis' && seciliArac && (
+        <GecmisAtamaFormu arac={seciliArac} araclar={araclar} onKapat={() => setForm(null)} onKayit={yukle} />
       )}
     </div>
   )
