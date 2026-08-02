@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { formatPara, formatTarih, yerelTarih, donemLabel, efektifDonem, tarihtenDonem, ARAC_KATEGORILER, yakitTuketimi } from '../db'
 import TarihInput from '../components/TarihInput'
-import { aracCacheTemizle } from '../components/AracSecici'
-import { Plus, Pencil, Link2 } from 'lucide-react'
+import { aracCacheTemizle, aracEtiket } from '../components/AracSecici'
+import { Plus, Pencil, Link2, Split, X } from 'lucide-react'
 
 const SIMGELER = [['🚗', 'Araba'], ['🏍️', 'Motosiklet']]
 const VARSAYILAN_EMOJI = SIMGELER[0][0]
@@ -163,15 +163,20 @@ function GecmisAtamaFormu({ arac, araclar, onKapat, onKayit }) {
   const [sonDonem, setSonDonem] = useState('')
   const [yukleniyor, setYukleniyor] = useState(true)
   const [kaydediliyor, setKaydediliyor] = useState(false)
+  const [bolunecek, setBolunecek] = useState(null)
 
-  useEffect(() => {
-    tumunuCek('hesap_hareketler', 'id, tarih, donem, tutar, kategori, aciklama, arac_id',
+  // hesap_id / tur / sira / grup_id bölme işleminin yeni satırları orijinalle
+  // birebir aynı yere yazabilmesi için gerekli
+  const yukleKayitlar = useCallback(async () => {
+    const rows = await tumunuCek(
+      'hesap_hareketler',
+      'id, hesap_id, tarih, donem, tutar, tur, kategori, aciklama, arac_id, litre, sira, grup_id',
       q => q.in('kategori', ARAC_KATEGORILER).lt('tutar', 0))
-      .then(rows => {
-        setKayitlar(rows.sort((a, b) => (b.donem || 0) - (a.donem || 0) || new Date(b.tarih) - new Date(a.tarih)))
-        setYukleniyor(false)
-      })
+    setKayitlar(rows.sort((a, b) => (b.donem || 0) - (a.donem || 0) || new Date(b.tarih) - new Date(a.tarih)))
+    setYukleniyor(false)
   }, [])
+
+  useEffect(() => { yukleKayitlar() }, [yukleKayitlar])
 
   const donemler = [...new Set(kayitlar.map(r => r.donem).filter(Boolean))].sort((a, b) => b - a)
 
@@ -311,8 +316,8 @@ function GecmisAtamaFormu({ arac, araclar, onKapat, onKayit }) {
               {gosterilecek.slice(0, GOSTERIM_SINIRI).map(r => {
                 const isSecili = secili.has(r.id)
                 return (
-                  <button key={r.id} type="button" onClick={() => degistir(r.id)}
-                    className={`w-full grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 px-4 py-2 text-left border-b border-slate-50 last:border-0 transition-colors ${
+                  <div key={r.id} onClick={() => degistir(r.id)}
+                    className={`grid grid-cols-[auto_auto_1fr_auto_auto] items-center gap-2 px-4 py-2 cursor-pointer border-b border-slate-50 last:border-0 transition-colors ${
                       isSecili ? 'bg-blue-50' : 'hover:bg-slate-50'
                     }`}>
                     <span className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center ${
@@ -331,7 +336,12 @@ function GecmisAtamaFormu({ arac, araclar, onKapat, onKayit }) {
                       )}
                     </span>
                     <span className="text-xs font-semibold text-red-500 whitespace-nowrap">₺{formatPara(Math.abs(r.tutar || 0))}</span>
-                  </button>
+                    <button type="button" onClick={e => { e.stopPropagation(); setBolunecek(r) }}
+                      title="Bu kaydı parçalara böl"
+                      className="p-1 rounded text-slate-300 hover:bg-slate-100 hover:text-blue-500 transition-colors">
+                      <Split size={13} />
+                    </button>
+                  </div>
                 )
               })}
               {gosterilecek.length > GOSTERIM_SINIRI && (
@@ -362,6 +372,141 @@ function GecmisAtamaFormu({ arac, araclar, onKapat, onKayit }) {
             <button type="button" onClick={() => uygula(arac.id)} disabled={kaydediliyor || secili.size === 0}
               className="flex-[2] py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-40">
               {kaydediliyor ? 'Atanıyor...' : `${arac.emoji || VARSAYILAN_EMOJI} ${arac.ad} aracına ata`}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {bolunecek && (
+        <BolFormu kayit={bolunecek} araclar={araclar}
+          onKapat={() => setBolunecek(null)}
+          onKayit={() => { yukleKayitlar(); onKayit() }} />
+      )}
+    </div>
+  )
+}
+
+// Tek bir gider satırını parçalara ayırır — ör. tek kalemde girilmiş bir Ulaşım
+// giderini iki araca bölmek için. Orijinal satır KORUNUR (id, tarih, dönem, sıra
+// aynı kalır), yalnızca tutarı ve aracı güncellenir; kalan parçalar yeni satır
+// olarak eklenir. Toplam birebir aynı kaldığı için bakiye ve dönem kapanışları
+// etkilenmez — kapalı dönemleri yeniden hesaplamaya gerek yoktur.
+function BolFormu({ kayit, araclar, onKapat, onKayit }) {
+  const hedef = Math.abs(kayit.tutar || 0)
+  const [parcalar, setParcalar] = useState(() => {
+    const yari = Math.round((hedef / 2) * 100) / 100
+    return [
+      { tutar: String(yari), arac_id: kayit.arac_id ?? null },
+      { tutar: String(Math.round((hedef - yari) * 100) / 100), arac_id: null },
+    ]
+  })
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+
+  const toplam = parcalar.reduce((s, p) => s + (parseFloat(p.tutar) || 0), 0)
+  const fark = Math.round((hedef - toplam) * 100) / 100
+  const eslesti = Math.abs(fark) < 0.005
+  const gecerli = eslesti && parcalar.every(p => (parseFloat(p.tutar) || 0) > 0)
+
+  const guncelle = (i, alan, deger) =>
+    setParcalar(p => { const y = [...p]; y[i] = { ...y[i], [alan]: deger }; return y })
+  const ekle = () => setParcalar(p => [...p, { tutar: '0', arac_id: null }])
+  const cikar = (i) => setParcalar(p => p.length <= 2 ? p : p.filter((_, j) => j !== i))
+
+  const kaydet = async () => {
+    if (!gecerli) return
+    setKaydediliyor(true)
+    const [ilk, ...digerleri] = parcalar
+    // Dolum bilgisi bölünmez: tek depo tek araca gider, parçalara dağıtılamaz.
+    await supabase.from('hesap_hareketler').update({
+      tutar: -(parseFloat(ilk.tutar) || 0),
+      arac_id: ilk.arac_id,
+      km: null, litre: null, tam_depo: null,
+    }).eq('id', kayit.id)
+
+    await supabase.from('hesap_hareketler').insert(digerleri.map(p => ({
+      hesap_id: kayit.hesap_id,
+      karsi_hesap_id: null,
+      grup_id: null,
+      tarih: kayit.tarih,
+      donem: kayit.donem,
+      tutar: -(parseFloat(p.tutar) || 0),
+      tur: kayit.tur || 'gider',
+      kategori: kayit.kategori,
+      aciklama: kayit.aciklama,
+      arac_id: p.arac_id,
+      // Orijinalle aynı sıra — bölünen parçalar listede yan yana kalsın
+      sira: kayit.sira,
+    })))
+
+    onKayit(); onKapat()
+  }
+
+  const girisCls = 'border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400'
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[70] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[85vh]">
+        <div className="p-5 border-b border-slate-100 flex-shrink-0">
+          <h3 className="font-semibold text-slate-800">✂️ Kaydı Böl</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {formatTarih(kayit.tarih)} · {kayit.kategori} · ₺{formatPara(hedef)}
+            {kayit.aciklama && ` · ${kayit.aciklama}`}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-2">
+          {kayit.grup_id ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+              Bu kayıt eşli bir transferin bacağı — bölünürse karşı kayıtla tutarsız hale gelir.
+            </p>
+          ) : (
+            <>
+              {kayit.litre != null && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  Bu satırda dolum kaydı var. Tek depo tek araca gittiği için bölünce
+                  km / litre bilgisi silinir.
+                </p>
+              )}
+              {parcalar.map((p, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <span className="text-xs text-slate-400 w-4 flex-shrink-0">{i + 1}</span>
+                  <input type="number" step="0.01" min="0" value={p.tutar}
+                    onChange={e => guncelle(i, 'tutar', e.target.value)}
+                    className={`w-28 flex-shrink-0 text-right ${girisCls}`} />
+                  <select value={p.arac_id ?? ''}
+                    onChange={e => guncelle(i, 'arac_id', e.target.value ? parseInt(e.target.value) : null)}
+                    className={`flex-1 min-w-0 bg-white ${girisCls}`}>
+                    <option value="">— Araçsız —</option>
+                    {araclar.map(a => <option key={a.id} value={a.id}>{aracEtiket(a)}</option>)}
+                  </select>
+                  <button type="button" onClick={() => cikar(i)} disabled={parcalar.length <= 2}
+                    className="p-1.5 rounded text-slate-300 hover:bg-red-50 hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent flex-shrink-0">
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={ekle}
+                className="w-full py-2 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
+                + Parça Ekle
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-100 flex-shrink-0 space-y-2">
+          <div className="flex justify-between text-xs px-0.5">
+            <span className="text-slate-500">Parça toplamı</span>
+            <span className={`font-semibold ${eslesti ? 'text-green-600' : 'text-red-500'}`}>
+              ₺{formatPara(toplam)} / ₺{formatPara(hedef)}
+              {!eslesti && <span className="ml-1 font-normal">({fark > 0 ? 'eksik' : 'fazla'} ₺{formatPara(Math.abs(fark))})</span>}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={onKapat}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="button" onClick={kaydet} disabled={kaydediliyor || !gecerli || !!kayit.grup_id}
+              className="flex-[2] py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-40">
+              {kaydediliyor ? 'Bölünüyor...' : `${parcalar.length} Parçaya Böl`}
             </button>
           </div>
         </div>
