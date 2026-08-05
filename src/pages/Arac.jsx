@@ -525,16 +525,50 @@ export default function Arac() {
 
   const yukle = useCallback(async () => {
     setYukleniyor(true)
-    const [{ data: araclarData }, giderler] = await Promise.all([
+    // Araç gideri üç yerden gelebilir ve ekstre beklemeden hepsi rapora girer.
+    // Bir kayıt zincirde ilerledikçe bir kovadan diğerine geçtiği için hiçbiri
+    // iki kez sayılmaz:
+    //   hesap_hareketler                        → gerçekleşmiş (hesaptan çıkmış)
+    //   borc_kalemler                           → ekstresi kesilmiş ama ödenmemiş
+    //                                             + henüz ödenmemiş taksitler
+    //   borc_harcamalar (ekstre_kesildi=false)  → ekstresi henüz kesilmemiş peşin
+    //
+    // Bir borç kalemi hesap_hareketler'e YALNIZCA odeEkstre üzerinden geçer ve o
+    // yol her zaman ekstre_id ile yürür. Yani "zaten defterde" olan kalemler tam
+    // olarak (odendi ve ekstre_id dolu) olanlardır. Sadece `odendi=false` filtresi
+    // kullanılsa, elle ödendi işaretlenen ya da taksitli harcama eklenirken geçmiş
+    // taksitleri otomatik ödendi gelen kalemler (ekstre_id null) hiçbir kovaya
+    // girmez ve rapordan tamamen düşerdi.
+    const [{ data: araclarData }, gerceklesen, bekleyenKalem, bekleyenHarcama] = await Promise.all([
       supabase.from('araclar').select('*').order('sira', { nullsFirst: false }).order('id'),
-      // Araç giderleri hep hesap_hareketler'de biter: doğrudan girilen giderler
-      // ile ekstresi ödenmiş KK harcamaları aynı tabloda buluşur.
       tumunuCek('hesap_hareketler', 'id, arac_id, donem, tarih, tutar, kategori, aciklama, km, litre, tam_depo',
         q => q.not('arac_id', 'is', null)),
+      tumunuCek('borc_kalemler', 'id, arac_id, donem, tarih, tutar, kategori, aciklama, km, litre, tam_depo',
+        q => q.not('arac_id', 'is', null).or('odendi.eq.false,ekstre_id.is.null')),
+      // borc_harcamalar'da donem kolonu yok — dönem harcamanın kendi tarihinden
+      // türetilir (kart kesim gününe göre kayacağı dönem değil; araç raporunda
+      // parayı harcadığınız ay daha anlamlı).
+      tumunuCek('borc_harcamalar', 'id, arac_id, tarih, tutar, kategori, aciklama, km, litre, tam_depo',
+        q => q.not('arac_id', 'is', null).eq('ekstre_kesildi', false)),
     ])
+
+    // Üç tablonun id'leri çakışabildiği için tekil bir _key üretilir; tutar da
+    // burada pozitife normalize edilir (hesap_hareketler'de gider negatif).
+    const normalize = (rows, onek, bekleyen) => (rows || []).map(r => ({
+      ...r,
+      _key: `${onek}${r.id}`,
+      _bekleyen: bekleyen,
+      donem: r.donem || tarihtenDonem(r.tarih),
+      tutar: Math.abs(r.tutar || 0),
+    }))
+
     const liste = araclarData || []
     setAraclar(liste)
-    setHareketler(giderler)
+    setHareketler([
+      ...normalize(gerceklesen, 'hh', false),
+      ...normalize(bekleyenKalem, 'bk', true),
+      ...normalize(bekleyenHarcama, 'bh', true),
+    ])
     setSecili(s => (s && liste.some(a => a.id === s)) ? s : (liste.find(a => a.aktif)?.id ?? liste[0]?.id ?? null))
     setYukleniyor(false)
   }, [])
@@ -552,21 +586,22 @@ export default function Arac() {
   const aracHareketler = hareketler.filter(r => r.arac_id === secili)
 
   // Dönem → kategori başına toplam + genel toplam (sütunlar ARAC_KATEGORILER'den
-  // türer). Gider tutarları hesap_hareketler'de negatif tutulur, burada pozitife çevrilir.
+  // türer). `bekleyen` o ayın henüz hesaptan çıkmamış KK kısmıdır.
   const aylik = (() => {
     const map = {}
     for (const r of aracHareketler) {
-      const d = r.donem || tarihtenDonem(r.tarih)
+      const d = r.donem
       if (!d) continue
-      if (!map[d]) map[d] = { donem: d, toplam: 0, ...Object.fromEntries(ARAC_KATEGORILER.map(k => [k, 0])) }
-      const tutar = Math.abs(r.tutar || 0)
-      map[d].toplam += tutar
-      if (ARAC_KATEGORILER.includes(r.kategori)) map[d][r.kategori] += tutar
+      if (!map[d]) map[d] = { donem: d, toplam: 0, bekleyen: 0, ...Object.fromEntries(ARAC_KATEGORILER.map(k => [k, 0])) }
+      map[d].toplam += r.tutar
+      if (r._bekleyen) map[d].bekleyen += r.tutar
+      if (ARAC_KATEGORILER.includes(r.kategori)) map[d][r.kategori] += r.tutar
     }
     return Object.values(map).sort((a, b) => b.donem - a.donem)
   })()
 
   const toplam = aylik.reduce((s, r) => s + r.toplam, 0)
+  const bekleyenToplam = aylik.reduce((s, r) => s + r.bekleyen, 0)
 
   // Kategori sayısı arttıkça tablo dar ekranda taşıyor — bu araçta hiç kaydı
   // olmayan kategoriler sütun açmaz.
@@ -692,6 +727,13 @@ export default function Arac() {
                   </div>
                 </div>
 
+                {bekleyenToplam > 0 && (
+                  <p className="mt-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+                    ₺{formatPara(bekleyenToplam)}'si henüz hesaptan çıkmadı — ekstresi kesilmemiş
+                    veya ödenmemiş KK harcamaları da bu toplama dahil.
+                  </p>
+                )}
+
                 <button onClick={() => setForm('gecmis')}
                   className="mt-2 w-full py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-500 hover:border-blue-300 hover:text-blue-600 transition-colors flex items-center justify-center gap-1.5">
                   <Link2 size={13} /> Geçmiş Giderleri Ata
@@ -730,8 +772,11 @@ export default function Arac() {
                     <tbody>
                       {aylik.map(r => (
                         <tr key={r.donem} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
-                          <td className="px-3 py-2 text-slate-500 border-l-2 border-blue-300 whitespace-nowrap">
+                          <td className={`px-3 py-2 text-slate-500 border-l-2 whitespace-nowrap ${r.bekleyen > 0 ? 'border-orange-400' : 'border-blue-300'}`}>
                             {donemLabel(r.donem)}
+                            {r.bekleyen > 0 && (
+                              <span className="ml-1 text-orange-500" title={`₺${formatPara(r.bekleyen)} bekleyen KK harcaması`}>●</span>
+                            )}
                           </td>
                           {sutunlar.map(k => (
                             <td key={k} className="px-3 py-2 text-right text-slate-500 whitespace-nowrap">
@@ -821,10 +866,10 @@ export default function Arac() {
                       <tbody>
                         {[...yakit.dolumlar].reverse().map(d => {
                           // Bu dolumda kapanan ölçüm aralığı (varsa) satırın tüketimidir
-                          const aralik = yakit.araliklar.find(a => a.son.id === d.id)
+                          const aralik = yakit.araliklar.find(a => a.son._key === d._key)
                           const eksik = d.tam_depo === false
                           return (
-                            <tr key={d.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                            <tr key={d._key} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                               <td className={`pl-3 pr-2 py-2 whitespace-nowrap border-l-2 text-slate-400 ${eksik ? 'border-amber-300' : 'border-blue-300'}`}>
                                 {formatTarih(d.tarih)}
                               </td>
@@ -833,7 +878,10 @@ export default function Arac() {
                                 {formatPara(d.litre)}
                                 {eksik && <span className="ml-1 text-[10px] text-amber-600">eksik</span>}
                               </td>
-                              <td className="px-2 py-2 text-right text-slate-500">₺{formatPara(Math.abs(d.tutar || 0))}</td>
+                              <td className="px-2 py-2 text-right text-slate-500">
+                                ₺{formatPara(d.tutar)}
+                                {d._bekleyen && <span className="ml-1 text-[10px] text-orange-500" title="Henüz hesaptan çıkmadı">●</span>}
+                              </td>
                               <td className="px-3 py-2 text-right font-bold text-blue-700 whitespace-nowrap">
                                 {aralik
                                   ? <>{aralik.tuketim.toFixed(2)}<span className="text-slate-400 font-normal text-[10px] ml-0.5">L</span></>
