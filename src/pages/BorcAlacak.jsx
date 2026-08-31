@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
+import { formatPara, formatTarih, yerelTarih, tarihtenDonem, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
 import TarihInput from '../components/TarihInput'
 import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
 import YakitAlanlari from '../components/YakitAlanlari'
@@ -1416,8 +1416,13 @@ export default function BorcAlacak() {
     await supabase.from('borc_ekstreler').update({ odendi: true, odendi_tarih: bugun }).eq('id', ekstre.id)
 
     const knIds = await knIdleriGetir()
-    const tumDonemler = [...new Set((kalemler || []).map(r => r.donem).filter(Boolean))]
-    const maxSiralar = await knMaxSiralar(tumDonemler, knIds)
+    // Banka çıkışının dönemi ÖDEME tarihinden türer — kartın ekstre döneminden
+    // değil. İkisi ayrıştığında (ör. ayın son iş günü ödenen ekstre: tarih
+    // efektifTarihObj ile sonraki ayın 1'i olurken dönem kesim ayında kalıyordu)
+    // kayıt, tarihinin ait olmadığı bir önceki dönemin listesinde görünüyordu.
+    // Dönem hep yazılan tarihten hesaplanırsa ikisi bir daha ayrışamaz.
+    const odemeDonem = tarihtenDonem(odemeTarihi)
+    const maxSiralar = await knMaxSiralar([odemeDonem], knIds)
     const bankaGiderler = []
 
     // Peşin (tur='ekstre') → kategori bazında topla → 1 kayıt / kategori.
@@ -1432,31 +1437,31 @@ export default function BorcAlacak() {
     Object.entries(pesinGrubu).forEach(([kategori, toplam]) => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
-        tarih: odemeTarihi, donem: ekstre.donem, tutar: -toplam,
+        tarih: odemeTarihi, donem: odemeDonem, tutar: -toplam,
         tur: 'gider', kategori, aciklama: 'KK Harcama', arac_id: null,
-        sira: ++maxSiralar[ekstre.donem],
+        sira: ++maxSiralar[odemeDonem],
       })
     })
     pesinler.filter(k => k.arac_id).forEach(k => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
-        tarih: odemeTarihi, donem: ekstre.donem, tutar: -(k.tutar || 0),
+        tarih: odemeTarihi, donem: odemeDonem, tutar: -(k.tutar || 0),
         tur: 'gider', kategori: k.kategori || 'Diğer', aciklama: k.aciklama || 'KK Harcama',
         arac_id: k.arac_id, km: k.km ?? null, litre: k.litre ?? null, tam_depo: k.tam_depo ?? null,
-        sira: ++maxSiralar[ekstre.donem],
+        sira: ++maxSiralar[odemeDonem],
       })
     })
 
     // Taksitli → her biri ayrı kayıt, kendi açıklaması ve kategorisiyle. Tarih
     // olarak taksitin kesim günü (r.tarih) değil, gerçek ödeme tarihi kullanılır —
-    // bankadan para bu gün çıkıyor; donem (KK ekstre dönemi) değişmez.
+    // bankadan para bu gün çıkıyor, dönem de o tarihin dönemidir.
     ;(kalemler || []).filter(k => k.tur !== 'ekstre').forEach(r => {
       bankaGiderler.push({
         hesap_id: knIds.banka, karsi_hesap_id: null, grup_id: null,
-        tarih: odemeTarihi, donem: r.donem, tutar: -(r.tutar || 0),
+        tarih: odemeTarihi, donem: odemeDonem, tutar: -(r.tutar || 0),
         tur: 'gider', kategori: r.kategori || 'Diğer', aciklama: r.aciklama || secili.ad,
         arac_id: r.arac_id ?? null, km: r.km ?? null, litre: r.litre ?? null, tam_depo: r.tam_depo ?? null,
-        sira: ++maxSiralar[r.donem],
+        sira: ++maxSiralar[odemeDonem],
       })
     })
 
