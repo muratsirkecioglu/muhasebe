@@ -1491,6 +1491,10 @@ export default function BorcAlacak() {
     .filter(h => !h.ekstre_kesildi && h.harcama_tipi === 'pesin')
     .sort((a, b) => (b.sira ?? 0) - (a.sira ?? 0))
 
+  // Tablonun alt satırında gösterilen toplam — listelenen satırlardan hesaplanır
+  // ki ekranda görünen kayıtlarla her zaman birebir tutsun.
+  const pesinToplam = pesinSirali.reduce((s, h) => s + (h.tutar || 0), 0)
+
   // İki kaydın yerini değiştirir.
   // - sira değerleri zaten atanmışsa: sadece bu iki satırın sira'sını takas eder (ucuz).
   // - sira hiç atanmamışsa (null): bu hesap için ilk kullanımda, o anki görüntülenen
@@ -2073,6 +2077,18 @@ export default function BorcAlacak() {
                       </div>
                     )
                   })
+                )}
+
+                {/* Toplam — ekstresi kesilmemiş tek çekim harcamalar */}
+                {pesinSirali.length > 0 && (
+                  <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] bg-orange-50 border-t border-orange-100 px-2 py-1.5 gap-1 items-center">
+                    <span className="col-span-2 text-xs font-semibold text-orange-700">
+                      {pesinSirali.length} harcama · kesilmemiş
+                    </span>
+                    <span className="w-20" />
+                    <span className="w-16 text-xs font-bold text-right text-orange-700">₺{formatPara(pesinToplam)}</span>
+                    <span className="w-12" />
+                  </div>
                 )}
               </div>
             </div>
