@@ -19,15 +19,19 @@ Supabase anahtarı `src/supabase.js` içinde gömülü (publishable key) — kop
 Sadece `master`'a push edilir; GitHub Actions oradan otomatik yayına alır.
 **`npm run deploy` çalıştırılmaz, `gh-pages` branch'ine push edilmez.**
 
-## Supabase'de çalıştırılması gerekenler
+## Supabase şeması
 
-Şema değişiklikleri repoda ama veritabanına elle uygulanır (makineden bağımsız —
-bir kez çalıştırıldıysa tekrar gerekmez, hepsi `if not exists`):
+Şema değişiklikleri repoda `sql/supabase-*.sql` olarak durur ama **otomatik
+uygulanmaz** — Supabase SQL Editor'de elle çalıştırılır. Veritabanı tek bir bulut
+örneği olduğu için bu makineden bağımsızdır; bir kez çalıştırıldıysa tekrar gerekmez.
 
-| Script | İçerik |
-|---|---|
-| `sql/supabase-arac.sql` | `araclar` tablosu + `hesap_hareketler`/`borc_harcamalar`/`borc_kalemler` → `arac_id` |
-| `sql/supabase-arac-yakit.sql` | Aynı üç tabloya `km`, `litre`, `tam_depo` |
+| Script | İçerik | Durum |
+|---|---|---|
+| `sql/supabase-arac.sql` | `araclar` tablosu + `hesap_hareketler`/`borc_harcamalar`/`borc_kalemler` → `arac_id` | ✅ 2026-10-12'de uygulandı |
+| `sql/supabase-arac-yakit.sql` | Aynı üç tabloya `km`, `litre`, `tam_depo` | ✅ 2026-10-12'de uygulandı |
+
+Yeni bir script eklenirse `if not exists` ile tekrar çalıştırılabilir yazılmalı ve
+bu tabloya durumuyla birlikte işlenmeli.
 
 ## Son çalışma: Araç takibi
 
