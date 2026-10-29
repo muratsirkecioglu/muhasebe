@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, tarihtenDonem, donemLabel, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI, efektifTarih, efektifTarihObj } from '../db'
+import { formatPara, formatTarih, yerelTarih, tarihtenDonem, donemLabel, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI } from '../db'
 import TarihInput from '../components/TarihInput'
 import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
 import YakitAlanlari from '../components/YakitAlanlari'
@@ -49,6 +49,14 @@ function harcamaDonemi(tarihStr, ekstreGun) {
 // Burada efektifDonem() KULLANILMAZ: o, maaşın ayın son iş günü yatmasından gelen
 // bir defter kuralı ve kartın kesim takvimiyle ilgisi yok. Ayın son iş gününde bir
 // sonraki aya atladığı için, o gün kesilmesi gereken dönemi atlıyordu.
+// "YYYY-MM-DD" → yerel gece yarısı Date nesnesi. new Date("YYYY-MM-DD") string'i
+// UTC olarak ayrıştırır; timestamptz sütuna yazarken yerel günle tutarlı kalsın
+// diye tarih parçalardan kurulur (bkz. db.js/yerelTarih açıklaması).
+function yerelTarihObj(tarihStr) {
+  const [y, a, g] = String(tarihStr).split('-').map(Number)
+  return new Date(y, a - 1, g)
+}
+
 function sonKesilenDonem(ekstreGun, bugun = new Date()) {
   const yil = bugun.getFullYear(), ay = bugun.getMonth()
   // Kesim günü tanımsızsa ekstre ay sonunda kesiliyor kabul edilir
@@ -1077,6 +1085,57 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
   )
 }
 
+// --- KK: Ekstre Öde Modal ---
+// Ödeme günü kullanıcıdan alınır; banka gider kaydının hem tarihi hem dönemi
+// bundan türer. Varsayılan bugündür — efektif tarih kuralı (ayın son iş günü →
+// sonraki ayın 1'i) burada uygulanmaz, o maaş/defter tarafına ait.
+function OdemeFormu({ ekstre, sembol, onKapat, onOde }) {
+  const [tarih, setTarih] = useState(yerelTarih(new Date()))
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+  const hedefDonem = tarih ? tarihtenDonem(tarih) : null
+
+  const kaydet = async (e) => {
+    e.preventDefault()
+    if (!tarih) return
+    setKaydediliyor(true)
+    await onOde(tarih)
+    onKapat()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800">💳 Ekstre Öde — {donemLabel(ekstre.donem)}</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {sembol}{formatPara(ekstre.tutar)} bankadan düşülecek
+          </p>
+        </div>
+        <form onSubmit={kaydet} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 block mb-1">Ödeme Tarihi</label>
+            <TarihInput value={tarih} onChange={setTarih}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required />
+          </div>
+          {hedefDonem && (
+            <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+              Gider kayıtları <strong>{donemLabel(hedefDonem)}</strong> dönemine yazılacak.
+              {hedefDonem !== ekstre.donem && ` Ekstre dönemi ${donemLabel(ekstre.donem)}; taksitlerin kart dönemi değişmez.`}
+            </p>
+          )}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onKapat} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600">İptal</button>
+            <button type="submit" disabled={kaydediliyor || !tarih}
+              className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              {kaydediliyor ? 'Ödeniyor...' : 'Ödendi İşaretle'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // --- KK: Ekstre Kes Modal ---
 // Kesilecek dönem, sayfanın görüntüleme filtresinden BAĞIMSIZ kendi seçicisinden
 // gelir. Önceden sayfa filtresi kullanılıyordu; bir görüntüleme tercihi sessizce
@@ -1251,6 +1310,7 @@ export default function BorcAlacak() {
   const [form, setForm] = useState(null) // null | 'hesap' | 'duzenle-hesap' | 'alode' | 'harcama' | 'ekstre'
   const [duzenleKalem, setDuzenleKalem] = useState(null)
   const [duzenleHarcama, setDuzenleHarcama] = useState(null)
+  const [odenecekEkstre, setOdenecekEkstre] = useState(null)
   const [yeniSatir, setYeniSatir] = useState(null) // peşin satır inline ekleme
   const [seciliSatirId, setSeciliSatirId] = useState(null) // peşin harcama sıralama
   const [seciliHareketId, setSeciliHareketId] = useState(null) // hareket sıralama
@@ -1439,25 +1499,25 @@ export default function BorcAlacak() {
 
   // Bekleyen ekstreyi öder: kalemleri + ekstreyi odendi yapar ve gerçek banka
   // gider kaydını burada (kesim anında değil, ödeme anında) oluşturur.
-  const odeEkstre = async (ekstre) => {
-    if (!confirm(`${donemLabel(ekstre.donem)} ekstresi (₺${formatPara(ekstre.tutar)}) ödendi olarak işaretlensin ve bankadan düşülsün mü?`)) return
+  // `odemeTarihiStr` kullanıcının OdemeFormu'nda seçtiği gün ("YYYY-MM-DD").
+  // Efektif tarih kuralı burada UYGULANMAZ: o, maaşın ayın son iş günü yatmasıyla
+  // ilgili bir defter kuralı ve ekstre ödemesini sonraki ayın 1'ine itiyordu.
+  // Ödemenin gerçekte hangi gün yapıldığını kullanıcı söyler.
+  const odeEkstre = async (ekstre, odemeTarihiStr) => {
     const { data: kalemler } = await supabase.from('borc_kalemler').select('*').eq('ekstre_id', ekstre.id)
     // odendi_tarih: `date` sütun → string güvenli. hesap_hareketler.tarih: `timestamptz`
     // sütun → string gönderilirse sunucu saat dilimine göre yeniden yorumlanıp gün
-    // bir öncekine kayabilir; bunun yerine Date nesnesi (efektifTarihObj) gönderilir.
-    const bugun = efektifTarih()
-    const odemeTarihi = efektifTarihObj()
+    // bir öncekine kayabilir; bunun yerine yerel gece yarısı Date nesnesi gönderilir.
+    const odemeTarihi = yerelTarihObj(odemeTarihiStr)
 
     await supabase.from('borc_kalemler').update({ odendi: true }).eq('ekstre_id', ekstre.id)
-    await supabase.from('borc_ekstreler').update({ odendi: true, odendi_tarih: bugun }).eq('id', ekstre.id)
+    await supabase.from('borc_ekstreler').update({ odendi: true, odendi_tarih: odemeTarihiStr }).eq('id', ekstre.id)
 
     const knIds = await knIdleriGetir()
     // Banka çıkışının dönemi ÖDEME tarihinden türer — kartın ekstre döneminden
-    // değil. İkisi ayrıştığında (ör. ayın son iş günü ödenen ekstre: tarih
-    // efektifTarihObj ile sonraki ayın 1'i olurken dönem kesim ayında kalıyordu)
-    // kayıt, tarihinin ait olmadığı bir önceki dönemin listesinde görünüyordu.
-    // Dönem hep yazılan tarihten hesaplanırsa ikisi bir daha ayrışamaz.
-    const odemeDonem = tarihtenDonem(odemeTarihi)
+    // değil. İkisi ayrıştığında kayıt, tarihinin ait olmadığı dönemin listesinde
+    // görünüyordu. Dönem hep yazılan tarihten hesaplanırsa ikisi bir daha ayrışamaz.
+    const odemeDonem = tarihtenDonem(odemeTarihiStr)
     const maxSiralar = await knMaxSiralar([odemeDonem], knIds)
     const bankaGiderler = []
 
@@ -2161,7 +2221,7 @@ export default function BorcAlacak() {
                         className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-100 hover:text-blue-600 transition-colors">
                         <X size={14} />
                       </button>
-                      <button onClick={() => odeEkstre(e)}
+                      <button onClick={() => setOdenecekEkstre(e)}
                         className="flex items-center gap-1 text-xs font-semibold text-white bg-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors">
                         Öde
                       </button>
@@ -2341,6 +2401,11 @@ export default function BorcAlacak() {
       )}
       {form === 'harcama' && seciliHesap?.tip === 'kk' && (
         <HarcamaFormu hesap={seciliHesap} onKapat={() => setForm(null)} onKayit={yenile} />
+      )}
+      {odenecekEkstre && (
+        <OdemeFormu ekstre={odenecekEkstre} sembol={sembol}
+          onKapat={() => setOdenecekEkstre(null)}
+          onOde={(tarih) => odeEkstre(odenecekEkstre, tarih)} />
       )}
       {form === 'ekstre' && seciliHesap?.tip === 'kk' && (
         <EkstreFormu
