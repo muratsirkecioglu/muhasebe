@@ -63,9 +63,16 @@ kapanışına girmez). Tek işlevi gider etiketlemek.
    JS `Date` nesnesi gönderilir (`efektifTarihObj()`); supabase-js `toISOString()`
    ile açık UTC ofseti üretir. `date` tipli sütunlarda (`odendi_tarih`) string güvenli.
 
-3. **Efektif dönem.** Ayın son iş günü, bir sonraki dönemin ilk günü gibi yorumlanır
-   (maaş o gün yatıyor). `efektifDonem()` / `efektifTarih()` / `efektifTarihObj()`.
-   Dönem combo'ları ve ödeme tarihleri bunu kullanır.
+3. **Efektif dönem ≠ kart kesim dönemi.** Ayın son iş günü, bir sonraki dönemin ilk
+   günü gibi yorumlanır (maaş o gün yatıyor). `efektifDonem()` / `efektifTarih()` /
+   `efektifTarihObj()` — bu bir **defter** kuralıdır: gelir/gider dönem combo'ları ve
+   ödeme tarihleri bunu kullanır.
+
+   Kredi kartı dönemleri bundan BAĞIMSIZDIR; kartın `ekstre_gun`'ünden türer:
+   `harcamaDonemi(tarih, gun)` harcamanın düşeceği dönemi, `sonKesilenDonem(gun)`
+   bugün itibarıyla kesilebilecek ekstreyi verir. İkisini karıştırmak gerçek bir
+   hataya yol açtı — ayın son iş gününde `efektifDonem()` Kasım'a atlayınca, tam o
+   gün kesilmesi gereken Ekim ekstresi seçilemiyordu.
 
 4. **KK zinciri ve çift sayma.** Bir harcama şu yolu izler:
    `borc_harcamalar` → (ekstre kesilir) → `borc_kalemler` → (ödenir) → `hesap_hareketler`.
