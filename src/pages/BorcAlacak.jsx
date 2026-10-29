@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { formatPara, formatTarih, yerelTarih, tarihtenDonem, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI, efektifDonem, efektifTarih, efektifTarihObj } from '../db'
+import { formatPara, formatTarih, yerelTarih, tarihtenDonem, donemLabel, GIDER_KATEGORILER, ARAC_KATEGORILER, YAKIT_KATEGORI, efektifTarih, efektifTarihObj } from '../db'
 import TarihInput from '../components/TarihInput'
 import AracSecici, { useAraclar, aracEtiket } from '../components/AracSecici'
 import YakitAlanlari from '../components/YakitAlanlari'
@@ -38,6 +38,23 @@ function harcamaDonemi(tarihStr, ekstreGun) {
   if (!ekstreGun) return t.getFullYear() * 100 + (t.getMonth() + 1)
   const ayOfset = t.getDate() > ekstreGun ? 1 : 0
   const d = new Date(t.getFullYear(), t.getMonth() + ayOfset, 1)
+  return d.getFullYear() * 100 + (d.getMonth() + 1)
+}
+
+// Bugün itibarıyla kesim günü GEÇMİŞ olan en son ekstre dönemi — yani şu an
+// kesilebilecek ekstre. P dönemi, P ayının ekstre_gun'ünde kesilir (kesim günü
+// dahil, harcamaDonemi ile tutarlı); kesim günü henüz gelmediyse kesilebilecek
+// son ekstre bir önceki dönemdir.
+//
+// Burada efektifDonem() KULLANILMAZ: o, maaşın ayın son iş günü yatmasından gelen
+// bir defter kuralı ve kartın kesim takvimiyle ilgisi yok. Ayın son iş gününde bir
+// sonraki aya atladığı için, o gün kesilmesi gereken dönemi atlıyordu.
+function sonKesilenDonem(ekstreGun, bugun = new Date()) {
+  const yil = bugun.getFullYear(), ay = bugun.getMonth()
+  // Kesim günü tanımsızsa ekstre ay sonunda kesiliyor kabul edilir
+  const kesimGunu = ekstreGun || new Date(yil, ay + 1, 0).getDate()
+  const gecti = bugun.getDate() >= kesimGunu
+  const d = new Date(yil, ay + (gecti ? 0 : -1), 1)
   return d.getFullYear() * 100 + (d.getMonth() + 1)
 }
 
@@ -1061,17 +1078,24 @@ function HarcamaFormu({ hesap, onKapat, onKayit }) {
 }
 
 // --- KK: Ekstre Kes Modal ---
-function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, kesilmisDonemler, onKapat, onKayit }) {
-  const buDonemKesilmis = kesilmisDonemler?.has(seciliDonem)
+// Kesilecek dönem, sayfanın görüntüleme filtresinden BAĞIMSIZ kendi seçicisinden
+// gelir. Önceden sayfa filtresi kullanılıyordu; bir görüntüleme tercihi sessizce
+// hangi ekstrenin kesileceğini belirliyor, filtrede o dönem yoksa da yanlış döneme
+// kesiliyordu.
+function EkstreFormu({ hesap, harcamalar, hareketler, varsayilanDonem, donemSecenekleri, kesilmisDonemler, onKapat, onKayit }) {
+  const [donem, setDonem] = useState(varsayilanDonem)
+  const buDonemKesilmis = kesilmisDonemler?.has(donem)
 
   // Bu dönem veya ÖNCESİNE ait (geç yansıyan provizyon kayıtları dahil), henüz
   // hiçbir ekstreye girmemiş harcamalar dahil edilir. Kesim gününden SONRAKİ
-  // harcamalar (hesaplanan dönemi seciliDonem'den büyük olanlar) bir sonraki
-  // dönemin ekstresine kalır.
+  // harcamalar (hesaplanan dönemi seçilenden büyük olanlar) bir sonraki dönemin
+  // ekstresine kalır.
   const bekleyenPesin = buDonemKesilmis ? [] : harcamalar.filter(h =>
-    !h.ekstre_kesildi && h.harcama_tipi === 'pesin' && harcamaDonemi(h.tarih, hesap.ekstre_gun) <= seciliDonem
+    !h.ekstre_kesildi && h.harcama_tipi === 'pesin' && harcamaDonemi(h.tarih, hesap.ekstre_gun) <= donem
   )
-  const donemOdenmemis = buDonemKesilmis ? [] : donemHareketler.filter(r => !r.odendi && r.tutar > 0 && !r.ekstre_id)
+  const donemOdenmemis = buDonemKesilmis ? [] : hareketler.filter(r =>
+    r.donem === donem && !r.odendi && r.tutar > 0 && !r.ekstre_id
+  )
   const [kaydediliyor, setKaydediliyor] = useState(false)
 
   const toplamTutar = [...bekleyenPesin, ...donemOdenmemis].reduce((s, r) => s + (r.tutar || 0), 0)
@@ -1083,7 +1107,6 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, kesilmis
     if (hicKayitYok) return
     setKaydediliyor(true)
     const bugun = yerelTarih(new Date())
-    const donem = seciliDonem || (() => { const n = new Date(); return n.getFullYear() * 100 + n.getMonth() + 1 })()
 
     const { data: ekstre } = await supabase.from('borc_ekstreler').insert({
       hesap_id: hesap.id,
@@ -1132,9 +1155,22 @@ function EkstreFormu({ hesap, harcamalar, donemHareketler, seciliDonem, kesilmis
   return (
     <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center px-4 pt-4 pb-20 md:p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-slate-100">
+        <div className="p-5 border-b border-slate-100 flex-shrink-0">
           <h3 className="font-semibold text-slate-800">✂️ Ekstre Kes — {hesap.ad}</h3>
-          <p className="text-xs text-slate-400 mt-1">
+          <div className="flex items-center gap-2 mt-2">
+            <label className="text-xs text-slate-500 flex-shrink-0">Kesilecek dönem:</label>
+            <select value={donem} onChange={e => setDonem(parseInt(e.target.value))}
+              className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-orange-400">
+              {donemSecenekleri.map(d => (
+                <option key={d} value={d}>
+                  {donemLabel(d)}
+                  {kesilmisDonemler?.has(d) ? ' — kesilmiş' : ''}
+                  {d === varsayilanDonem ? ' (sıradaki)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-slate-400 mt-1.5">
             {donemOdenmemis.length} taksit + {bekleyenPesin.length} bekleyen · ₺{formatPara(toplamTutar)} toplam
           </p>
         </div>
@@ -1593,7 +1629,10 @@ export default function BorcAlacak() {
     if (!secili) return
     const hesap = hesaplar.find(h => h.id === secili.id)
     if (hesap?.tip === 'kk') {
-      setSeciliDonem(efektifDonem())
+      // Kartın kendi kesim takvimine göre harcamaların şu an biriktiği dönem.
+      // efektifDonem() (maaş kuralı) kartla ilgisiz ve ayın son iş gününde
+      // dönemi bir ay ileri kaydırıyordu.
+      setSeciliDonem(harcamaDonemi(new Date(), hesap.ekstre_gun))
     } else {
       setSeciliDonem(null)
     }
@@ -1622,13 +1661,24 @@ export default function BorcAlacak() {
       + (seciliDonem === buAy ? bekleyenToplam : 0)
     : guncelBorc
 
-  // Dönem listesi — sadece kayıt olan dönemler
-  const donemler = [...new Set(hareketler.map(r => r.donem).filter(Boolean))].sort((a, b) => a - b)
-
-  const donemLabel = (d) => {
-    const y = Math.floor(d / 100), m = d % 100
-    return `${y}/${String(m).padStart(2, '0')}`
-  }
+  // Dönem listesi. Yalnızca borc_kalemler'den türetilirse, o dönemde taksiti
+  // olmayan (sadece tek çekim harcaması olan) bir kartta o dönem hiç listelenmez —
+  // dolayısıyla kesilmesi gereken ekstre seçilemez hale gelirdi. Kaynaklar:
+  // kalem dönemleri + bekleyen harcamaların düşeceği dönemler + kesilmiş ekstre
+  // dönemleri + bugün kesilebilir dönem + harcamaların biriktiği dönem.
+  const donemler = (() => {
+    const set = new Set(hareketler.map(r => r.donem).filter(Boolean))
+    if (seciliHesap?.tip === 'kk') {
+      const gun = seciliHesap.ekstre_gun
+      for (const h of harcamalar) {
+        if (!h.ekstre_kesildi) set.add(harcamaDonemi(h.tarih, gun))
+      }
+      for (const d of kesilmisDonemler) set.add(d)
+      set.add(sonKesilenDonem(gun))
+      set.add(harcamaDonemi(new Date(), gun))
+    }
+    return [...set].filter(Boolean).sort((a, b) => a - b)
+  })()
 
   // Filtrelenmiş + sıralanmış hareketler
   // - KK hesapta dönem seçiliyse: o döneme filtrelenir + sira sırasına göre gösterilir
@@ -2296,8 +2346,9 @@ export default function BorcAlacak() {
         <EkstreFormu
           hesap={seciliHesap}
           harcamalar={harcamalar}
-          donemHareketler={seciliDonem ? hareketler.filter(r => r.donem === seciliDonem) : hareketler.filter(r => r.donem === buAy)}
-          seciliDonem={seciliDonem || buAy}
+          hareketler={hareketler}
+          varsayilanDonem={sonKesilenDonem(seciliHesap.ekstre_gun)}
+          donemSecenekleri={donemler}
           kesilmisDonemler={kesilmisDonemler}
           onKapat={() => setForm(null)}
           onKayit={yenile} />
